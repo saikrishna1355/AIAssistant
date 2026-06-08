@@ -118,7 +118,11 @@ server.on('error', (error) => {
   process.exitCode = 1;
 });
 
-server.listen(PORT, () => {
-  console.log(`🦜 Interview Copilot AI Server running on http://localhost:${PORT}`);
-  console.log('Open your browser and navigate to the URL above');
+const ready = new Promise((resolve) => {
+  server.listen(PORT, () => {
+    console.log(`🦜 Interview Copilot AI Server running on http://localhost:${PORT}`);
+    resolve(PORT);
+  });
 });
+
+module.exports = { ready };

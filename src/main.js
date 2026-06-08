@@ -215,24 +215,22 @@ function toggleOverlayWindow() {
   return { success: true, visible: true };
 }
 
-app.whenReady().then(() => {
-  // Start the Express server first, then create windows
-  require('./server');
-  
-  // Wait briefly for server to be ready
-  setTimeout(() => {
-    createWindow();
-    createTray();
-    globalShortcut.register('CommandOrControl+Shift+O', toggleOverlayWindow);
-    globalShortcut.register('CommandOrControl+Shift+P', () => toggleOverlayPreference('privacy'));
-    globalShortcut.register('CommandOrControl+Shift+F', () => toggleOverlayPreference('focus'));
-    globalShortcut.register('CommandOrControl+Shift+D', () => cycleOverlayDock());
-    globalShortcut.register('CommandOrControl+Shift+M', () => moveOverlayToNextDisplay());
+app.whenReady().then(async () => {
+  // Start the Express server and wait for it to be ready
+  const { ready } = require('./server');
+  await ready;
 
-    if (loadOverlayState().visible) {
-      createOverlayWindow();
-    }
-  }, 500);
+  createWindow();
+  createTray();
+  globalShortcut.register('CommandOrControl+Shift+O', toggleOverlayWindow);
+  globalShortcut.register('CommandOrControl+Shift+P', () => toggleOverlayPreference('privacy'));
+  globalShortcut.register('CommandOrControl+Shift+F', () => toggleOverlayPreference('focus'));
+  globalShortcut.register('CommandOrControl+Shift+D', () => cycleOverlayDock());
+  globalShortcut.register('CommandOrControl+Shift+M', () => moveOverlayToNextDisplay());
+
+  if (loadOverlayState().visible) {
+    createOverlayWindow();
+  }
 });
 
 app.on('will-quit', () => {
