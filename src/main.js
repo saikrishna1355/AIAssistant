@@ -4,6 +4,9 @@ const fs = require('fs');
 const path = require('path');
 const { InterviewCopilot } = require('./services/interview-copilot');
 
+const PORT = process.env.PORT || 3003;
+const SERVER_URL = `http://localhost:${PORT}`;
+
 let mainWindow;
 let overlayWindow;
 let tray;
@@ -128,7 +131,7 @@ function createWindow() {
     }
   });
 
-  mainWindow.loadFile(path.join(__dirname, 'renderer', 'index.html'));
+  mainWindow.loadURL(`${SERVER_URL}/index.html`);
   
   if (process.env.NODE_ENV === 'development') {
     mainWindow.webContents.openDevTools();
@@ -213,17 +216,23 @@ function toggleOverlayWindow() {
 }
 
 app.whenReady().then(() => {
-  createWindow();
-  createTray();
-  globalShortcut.register('CommandOrControl+Shift+O', toggleOverlayWindow);
-  globalShortcut.register('CommandOrControl+Shift+P', () => toggleOverlayPreference('privacy'));
-  globalShortcut.register('CommandOrControl+Shift+F', () => toggleOverlayPreference('focus'));
-  globalShortcut.register('CommandOrControl+Shift+D', () => cycleOverlayDock());
-  globalShortcut.register('CommandOrControl+Shift+M', () => moveOverlayToNextDisplay());
+  // Start the Express server first, then create windows
+  require('./server');
+  
+  // Wait briefly for server to be ready
+  setTimeout(() => {
+    createWindow();
+    createTray();
+    globalShortcut.register('CommandOrControl+Shift+O', toggleOverlayWindow);
+    globalShortcut.register('CommandOrControl+Shift+P', () => toggleOverlayPreference('privacy'));
+    globalShortcut.register('CommandOrControl+Shift+F', () => toggleOverlayPreference('focus'));
+    globalShortcut.register('CommandOrControl+Shift+D', () => cycleOverlayDock());
+    globalShortcut.register('CommandOrControl+Shift+M', () => moveOverlayToNextDisplay());
 
-  if (loadOverlayState().visible) {
-    createOverlayWindow();
-  }
+    if (loadOverlayState().visible) {
+      createOverlayWindow();
+    }
+  }, 500);
 });
 
 app.on('will-quit', () => {
