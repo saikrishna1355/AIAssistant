@@ -2,7 +2,7 @@ name: Build Desktop Installers
 
 on:
   push:
-    tags: ['v*']
+    tags: ["v*"]
   workflow_dispatch:
 
 permissions:
@@ -13,12 +13,12 @@ jobs:
     strategy:
       matrix:
         include:
-          - os: ubuntu-latest
-            cmd: build:linux
+          # - os: ubuntu-latest
+          #   cmd: build:linux
           - os: windows-latest
             cmd: build:win
-          - os: macos-latest
-            cmd: build:mac
+          # - os: macos-latest
+          #   cmd: build:mac
 
     runs-on: ${{ matrix.os }}
 

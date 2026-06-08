@@ -4,14 +4,20 @@ const fs = require('fs');
 const path = require('path');
 const { InterviewCopilot } = require('./services/interview-copilot');
 
-const PORT = process.env.PORT || 3003;
-const SERVER_URL = `http://localhost:${PORT}`;
-
 let mainWindow;
 let overlayWindow;
 let tray;
 let copilot;
 let overlayStatePath;
+
+function writeAppLog(message) {
+  try {
+    const logPath = path.join(app.getPath('userData'), 'main.log');
+    fs.appendFileSync(logPath, `${new Date().toISOString()} ${message}\n`);
+  } catch (error) {
+    console.warn('Failed to write app log:', error.message);
+  }
+}
 
 function getOverlayStatePath() {
   if (!overlayStatePath) {
@@ -131,7 +137,13 @@ function createWindow() {
     }
   });
 
-  mainWindow.loadURL(`${SERVER_URL}/index.html`);
+  mainWindow.loadFile(path.join(__dirname, 'renderer', 'index.html'));
+  mainWindow.webContents.on('did-fail-load', (event, errorCode, errorDescription, validatedURL) => {
+    writeAppLog(`Main window failed to load ${validatedURL}: ${errorCode} ${errorDescription}`);
+  });
+  mainWindow.webContents.on('render-process-gone', (event, details) => {
+    writeAppLog(`Main renderer process gone: ${JSON.stringify(details)}`);
+  });
   
   if (process.env.NODE_ENV === 'development') {
     mainWindow.webContents.openDevTools();
@@ -178,16 +190,16 @@ function createOverlayWindow() {
 
   overlayWindow.setAlwaysOnTop(true, 'screen-saver');
   overlayWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
-  
-  // Content protection only works on macOS and Windows.
-  // On Linux the compositor does not support this API.
-  if (process.platform !== 'linux') {
-    overlayWindow.setContentProtection(true);
-  }
 
   overlayWindow.setOpacity(overlayState.opacity);
   overlayWindow.setIgnoreMouseEvents(false);
   overlayWindow.loadFile(path.join(__dirname, 'renderer', 'overlay.html'));
+  overlayWindow.webContents.on('did-fail-load', (event, errorCode, errorDescription, validatedURL) => {
+    writeAppLog(`Overlay failed to load ${validatedURL}: ${errorCode} ${errorDescription}`);
+  });
+  overlayWindow.webContents.on('render-process-gone', (event, details) => {
+    writeAppLog(`Overlay renderer process gone: ${JSON.stringify(details)}`);
+  });
 
   overlayWindow.on('move', () => saveOverlayState({ bounds: overlayWindow.getBounds() }));
   overlayWindow.on('resize', () => saveOverlayState({ bounds: overlayWindow.getBounds() }));
@@ -215,11 +227,7 @@ function toggleOverlayWindow() {
   return { success: true, visible: true };
 }
 
-app.whenReady().then(async () => {
-  // Start the Express server and wait for it to be ready
-  const { ready } = require('./server');
-  await ready;
-
+app.whenReady().then(() => {
   createWindow();
   createTray();
   globalShortcut.register('CommandOrControl+Shift+O', toggleOverlayWindow);

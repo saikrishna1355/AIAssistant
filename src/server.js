@@ -113,12 +113,13 @@ io.on('connection', (socket) => {
 });
 
 const PORT = process.env.PORT || 3003;
-server.on('error', (error) => {
-  console.error(`Failed to start Interview Copilot AI server on port ${PORT}:`, error.message);
-  process.exitCode = 1;
-});
 
-const ready = new Promise((resolve) => {
+const ready = new Promise((resolve, reject) => {
+  server.on('error', (error) => {
+    console.error(`Failed to start server on port ${PORT}:`, error.message);
+    reject(error);
+  });
+
   server.listen(PORT, () => {
     console.log(`🦜 Interview Copilot AI Server running on http://localhost:${PORT}`);
     resolve(PORT);
