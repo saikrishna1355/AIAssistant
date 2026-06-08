@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Interview Copilot Overlay</title>
+  <link rel="stylesheet" href="overlay.css">
+</head>
+<body>
+  <section class="overlay-shell">
+    <header class="overlay-header">
+      <div class="drag-zone">
+        <span class="overlay-mark">IC</span>
+        <div>
+          <p>Interview Copilot AI</p>
+          <h1>Live Overlay</h1>
+        </div>
+      </div>
+      <div class="overlay-actions">
+        <button id="minimize-overlay" class="overlay-interactive" title="Minimize to tray">-</button>
+        <button id="close-overlay" class="overlay-interactive" title="Hide">x</button>
+      </div>
+    </header>
+
+    <div class="status-row">
+      <span id="overlay-status" class="status-dot">Waiting</span>
+      <span>Always-on-top desktop window</span>
+    </div>
+
+    <div class="overlay-controls">
+      <button id="overlay-start" class="control-btn primary overlay-interactive">Start Listening</button>
+      <button id="overlay-stop" class="control-btn overlay-interactive" disabled>Stop</button>
+      <button id="overlay-screenshot" class="control-btn accent overlay-interactive">Read Screen</button>
+    </div>
+
+    <div class="opacity-row overlay-interactive">
+      <label for="overlay-opacity">Opacity</label>
+      <input id="overlay-opacity" type="range" min="0.15" max="1" step="0.01" value="0.88">
+    </div>
+
+    <div class="mode-controls overlay-interactive">
+      <button id="overlay-privacy" class="mode-btn">Privacy</button>
+      <button id="overlay-focus" class="mode-btn">Focus</button>
+      <button id="overlay-theme" class="mode-btn">Theme</button>
+      <button id="overlay-dock" class="mode-btn">Dock</button>
+      <button id="overlay-monitor" class="mode-btn">Monitor</button>
+    </div>
+
+    <main class="overlay-content">
+      <section class="overlay-panel transcript">
+        <div class="panel-title">
+          <h2>Live Transcript</h2>
+          <span>AI Active</span>
+        </div>
+        <div id="overlay-transcription" class="panel-body sensitive muted">Start listening from the main app.</div>
+      </section>
+
+      <section class="overlay-panel">
+        <div class="panel-title">
+          <h2>Latest Question</h2>
+          <span>Detected</span>
+        </div>
+        <div id="overlay-question" class="panel-body sensitive muted">No question detected yet.</div>
+      </section>
+
+      <section class="overlay-panel answer">
+        <div class="panel-title">
+          <h2>Answer</h2>
+          <span>Bedrock</span>
+        </div>
+        <div id="overlay-answer" class="panel-body sensitive muted">Answer will appear here.</div>
+      </section>
+    </main>
+    <div class="resize-hint" aria-hidden="true"></div>
+  </section>
+
+  <script src="overlay.js"></script>
+</body>
+</html>

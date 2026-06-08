@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Interview Copilot AI</title>
+  <link rel="stylesheet" href="styles.css">
+  <script src="/socket.io/socket.io.js"></script>
+</head>
+<body>
+  <div class="app-shell">
+    <header class="topbar">
+      <div class="brand-block">
+        <div class="brand-mark">IC</div>
+        <div>
+          <p class="eyebrow">Real-time interview workspace</p>
+          <h1>Interview Copilot AI</h1>
+        </div>
+      </div>
+      <div class="topbar-actions">
+        <span id="status-indicator" class="status-pill status-offline">Offline</span>
+        <button id="start-listening" class="btn btn-primary">Start Listening</button>
+        <button id="stop-listening" class="btn" disabled>Stop</button>
+        <button id="open-overlay" class="btn">Open Overlay</button>
+        <button id="take-screenshot" class="btn btn-accent">Read Screen</button>
+      </div>
+    </header>
+
+    <main class="workspace">
+      <section class="left-rail">
+        <div class="session-card">
+          <h2>Session Control</h2>
+          <p>Live microphone transcription, screenshot OCR, and Bedrock answer generation are active from this workspace.</p>
+        </div>
+
+        <div id="desktop-download-card" class="session-card download-card">
+          <h2>Need Desktop Overlay?</h2>
+          <p>Install the desktop app for always-on-top overlay, tray controls, global shortcuts, and multi-monitor support.</p>
+          <a id="desktop-download-link" class="btn btn-primary full-width download-link" href="#" target="_blank" rel="noopener">Download Desktop App</a>
+          <div id="platform-downloads" style="display:none; margin-top:8px; gap:6px; flex-wrap:wrap;">
+            <a id="download-win" class="btn btn-secondary download-link" href="#" target="_blank" rel="noopener">⊞ Windows</a>
+            <a id="download-mac" class="btn btn-secondary download-link" href="#" target="_blank" rel="noopener">⌘ macOS</a>
+            <a id="download-linux" class="btn btn-secondary download-link" href="#" target="_blank" rel="noopener">🐧 Linux</a>
+          </div>
+        </div>
+
+        <div class="metric-grid">
+          <div class="metric">
+            <span>Questions</span>
+            <strong id="question-count">0</strong>
+          </div>
+          <div class="metric">
+            <span>Session</span>
+            <strong id="session-time">00:00</strong>
+          </div>
+        </div>
+
+        <div class="tool-panel">
+          <div class="section-title">
+            <h2>Ask Copilot</h2>
+            <span>Manual</span>
+          </div>
+          <select id="manual-type" class="input">
+            <option value="general">General</option>
+            <option value="behavioral">Behavioral</option>
+            <option value="technical">Technical</option>
+            <option value="coding">Coding</option>
+            <option value="debug">Debug</option>
+          </select>
+          <textarea id="manual-question" class="textarea" placeholder="Paste an interview question, coding prompt, or broken code here."></textarea>
+          <button id="generate-manual" class="btn btn-primary full-width">Generate Answer</button>
+        </div>
+
+        <div class="tool-panel compact">
+          <div class="section-title">
+            <h2>Supported Surfaces</h2>
+            <span>Ready</span>
+          </div>
+          <div class="surface-list">
+            <span>Zoom</span>
+            <span>Google Meet</span>
+            <span>Teams</span>
+            <span>Webex</span>
+            <span>HackerRank</span>
+            <span>LeetCode</span>
+            <span>CodeSignal</span>
+            <span>CoderPad</span>
+          </div>
+        </div>
+      </section>
+
+      <section class="main-grid">
+        <div class="panel transcript-panel">
+          <div class="panel-header">
+            <h2>Live Transcript</h2>
+            <span>AWS Transcribe</span>
+          </div>
+          <div id="transcription" class="content-area muted">Waiting for audio input...</div>
+        </div>
+
+        <div class="panel">
+          <div class="panel-header">
+            <h2>Detected Questions</h2>
+            <span>Auto-classified</span>
+          </div>
+          <div id="questions" class="content-area muted">No questions detected yet.</div>
+        </div>
+
+        <div class="panel answer-panel">
+          <div class="panel-header">
+            <h2>Answer Feed</h2>
+            <span>AWS Bedrock</span>
+          </div>
+          <div id="answers" class="content-area muted">Answers will appear here.</div>
+        </div>
+
+        <div class="panel">
+          <div class="panel-header">
+            <h2>Screen Coding Assistant</h2>
+            <span>OCR + solution</span>
+          </div>
+          <div id="screenshot-analysis" class="content-area muted">Use Read Screen on coding platforms or shared interview prompts.</div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <script src="renderer.js"></script>
+</body>
+</html>
