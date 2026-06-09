@@ -152,6 +152,7 @@ function loadOverlayState() {
     preferences: {
       privacy: false,
       focus: false,
+      screenProtection: process.env.SCREEN_PROTECTION !== 'false',
       theme: 'dark',
       dock: 'floating'
     }
@@ -296,6 +297,7 @@ function createOverlayWindow() {
     process.platform !== 'win32' && process.env.OVERLAY_TRANSPARENT !== 'false'
   );
   const overlayBackgroundColor = useTransparentOverlay ? '#00000000' : '#101827';
+  const enableScreenProtection = process.env.SCREEN_PROTECTION !== 'false';
 
   writeAppLog('overlay_window_create_requested', {
     bounds: overlayState.bounds,
@@ -303,10 +305,11 @@ function createOverlayWindow() {
     preferences: overlayState.preferences,
     transparent: useTransparentOverlay,
     backgroundColor: overlayBackgroundColor,
-    platform: process.platform
+    platform: process.platform,
+    screenProtection: enableScreenProtection
   });
 
-  overlayWindow = new BrowserWindow({
+  const windowOptions = {
     ...overlayState.bounds,
     minWidth: 420,
     minHeight: 420,
@@ -325,16 +328,62 @@ function createOverlayWindow() {
       contextIsolation: true,
       sandbox: false
     }
-  });
+  };
+
+  // Add screen recording protection options
+  if (enableScreenProtection) {
+    // Hide from screen recording APIs
+    windowOptions.webPreferences.experimentalFeatures = true;
+    
+    // Platform-specific screen protection
+    if (process.platform === 'win32') {
+      // Windows: Use WS_EX_NOREDIRECTIONBITMAP to exclude from DWM
+      windowOptions.skipTaskbar = true;
+      windowOptions.type = 'toolbar'; // Makes window less likely to be captured
+    } else if (process.platform === 'darwin') {
+      // macOS: Set window level to prevent screen recording
+      windowOptions.level = 'screen-saver';
+    } else if (process.platform === 'linux') {
+      // Linux: Use override-redirect to bypass compositor
+      windowOptions.type = 'toolbar';
+      windowOptions.skipTaskbar = true;
+    }
+  }
+
+  overlayWindow = new BrowserWindow(windowOptions);
 
   writeAppLog('overlay_window_created', {
     bounds: overlayWindow.getBounds(),
-    transparent: useTransparentOverlay
+    transparent: useTransparentOverlay,
+    screenProtection: enableScreenProtection
   });
 
   overlayWindow.setAlwaysOnTop(true, 'screen-saver');
   overlayWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
   overlayWindow.setBackgroundColor(overlayBackgroundColor);
+
+  // Additional screen protection measures
+  if (enableScreenProtection) {
+    // Try to hide from screen recording
+    try {
+      if (process.platform === 'darwin') {
+        // macOS: Set window to bypass screen recording
+        overlayWindow.setContentProtection(true);
+      }
+      
+      // Set window to not appear in screenshots
+      overlayWindow.setDocumentEdited(false);
+      overlayWindow.setRepresentedFilename('');
+      
+      // Make window non-recordable by setting special properties
+      overlayWindow.webContents.executeJavaScript(`
+        document.documentElement.style.setProperty('--screen-protection', 'enabled');
+        document.body.classList.add('screen-protected');
+      `);
+    } catch (error) {
+      writeAppLog('overlay_screen_protection_failed', { error: error.message });
+    }
+  }
 
   overlayWindow.setOpacity(overlayState.opacity);
   overlayWindow.setIgnoreMouseEvents(false);

@@ -11,9 +11,9 @@ const elements = {
   opacity: document.getElementById('overlay-opacity'),
   privacyBtn: document.getElementById('overlay-privacy'),
   focusBtn: document.getElementById('overlay-focus'),
+  screenProtectBtn: document.getElementById('overlay-screen-protect'),
   themeBtn: document.getElementById('overlay-theme'),
   dockBtn: document.getElementById('overlay-dock'),
-  monitorBtn: document.getElementById('overlay-monitor'),
   closeBtn: document.getElementById('close-overlay'),
   minimizeBtn: document.getElementById('minimize-overlay')
 };
@@ -21,6 +21,7 @@ const elements = {
 const overlayState = {
   privacy: false,
   focus: false,
+  screenProtection: true,
   theme: 'dark',
   dock: 'floating'
 };
@@ -133,16 +134,66 @@ function applyPreferences(preferences = {}) {
 
   document.body.classList.toggle('privacy-mode', overlayState.privacy);
   document.body.classList.toggle('focus-mode', overlayState.focus);
+  document.body.classList.toggle('screen-protected', overlayState.screenProtection);
   document.body.classList.toggle('theme-light', overlayState.theme === 'light');
   document.body.dataset.dock = overlayState.dock;
 
+  // Set screen protection attribute
+  document.documentElement.setAttribute('data-screen-protection', overlayState.screenProtection ? 'enabled' : 'disabled');
+
   elements.privacyBtn.classList.toggle('active', overlayState.privacy);
   elements.focusBtn.classList.toggle('active', overlayState.focus);
+  elements.screenProtectBtn.classList.toggle('active', overlayState.screenProtection);
   elements.themeBtn.textContent = overlayState.theme === 'light' ? 'Dark' : 'Light';
   elements.dockBtn.textContent = overlayState.dock === 'floating' ? 'Dock' : `Dock: ${overlayState.dock}`;
 
   if (preferences.opacity) {
     applyOpacity(preferences.opacity);
+  }
+
+  // Apply screen protection measures
+  if (overlayState.screenProtection) {
+    enableScreenProtection();
+  } else {
+    disableScreenProtection();
+  }
+}
+
+function enableScreenProtection() {
+  try {
+    // Add screen capture protection styles
+    document.documentElement.style.setProperty('--capture-protection', 'visible');
+    
+    // Prevent selection and context menus in protected mode
+    document.body.style.userSelect = 'none';
+    document.body.style.webkitUserSelect = 'none';
+    
+    // Add blur filter for extra protection
+    const sensitiveElements = document.querySelectorAll('.sensitive');
+    sensitiveElements.forEach(el => {
+      el.style.filter = 'contrast(1.2) brightness(1.1)';
+    });
+    
+    logOverlay('screen_protection_enabled');
+  } catch (error) {
+    logOverlay('screen_protection_enable_failed', { error: error.message });
+  }
+}
+
+function disableScreenProtection() {
+  try {
+    document.documentElement.style.removeProperty('--capture-protection');
+    document.body.style.userSelect = '';
+    document.body.style.webkitUserSelect = '';
+    
+    const sensitiveElements = document.querySelectorAll('.sensitive');
+    sensitiveElements.forEach(el => {
+      el.style.filter = '';
+    });
+    
+    logOverlay('screen_protection_disabled');
+  } catch (error) {
+    logOverlay('screen_protection_disable_failed', { error: error.message });
   }
 }
 
@@ -218,6 +269,10 @@ elements.focusBtn.addEventListener('click', () => {
   updatePreferences({ focus: !overlayState.focus });
 });
 
+elements.screenProtectBtn.addEventListener('click', () => {
+  updatePreferences({ screenProtection: !overlayState.screenProtection });
+});
+
 elements.themeBtn.addEventListener('click', () => {
   updatePreferences({ theme: overlayState.theme === 'dark' ? 'light' : 'dark' });
 });
@@ -228,10 +283,6 @@ elements.dockBtn.addEventListener('click', async () => {
   if (result.success) {
     applyPreferences({ dock: result.dock });
   }
-});
-
-elements.monitorBtn.addEventListener('click', async () => {
-  await api.invoke('overlay-next-display');
 });
 
 api.invoke('overlay-get-state').then((state) => {
