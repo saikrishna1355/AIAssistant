@@ -6,7 +6,12 @@ const path = require('path');
 class ScreenCapture {
   constructor(options = {}) {
     this.screenshotPath = options.screenshotPath || process.env.SCREENSHOT_TEMP_DIR || path.join(process.cwd(), 'temp');
+    this.electronCaptureProvider = options.electronCaptureProvider || null;
     this.ensureTempDirectory();
+  }
+
+  setElectronCaptureProvider(provider) {
+    this.electronCaptureProvider = provider;
   }
 
   ensureTempDirectory() {
@@ -94,10 +99,28 @@ class ScreenCapture {
   }
 
   async captureWithFallback(displayId = undefined) {
+    if (process.platform === 'win32' && this.electronCaptureProvider) {
+      try {
+        console.log('Trying Electron desktopCapturer screenshot provider first');
+        return await this.electronCaptureProvider(displayId);
+      } catch (error) {
+        console.warn('Electron desktopCapturer screenshot failed, trying screenshot-desktop:', error.message);
+      }
+    }
+
     try {
       return await this.capture(displayId);
     } catch (error) {
       console.warn('Primary screenshot method failed, trying fallback...', error.message);
+
+      if (this.electronCaptureProvider) {
+        try {
+          console.log('Trying Electron desktopCapturer screenshot provider after primary failure');
+          return await this.electronCaptureProvider(displayId);
+        } catch (electronError) {
+          console.warn('Electron desktopCapturer fallback failed:', electronError.message);
+        }
+      }
       
       // Fallback: Try different screenshot methods based on platform
       if (process.platform === 'linux') {

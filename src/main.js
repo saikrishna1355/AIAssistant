@@ -24,7 +24,7 @@ if (!electron || !electron.app) {
   process.exit(1);
 }
 
-const { app, BrowserWindow, Menu, Tray, globalShortcut, ipcMain, nativeImage, screen } = electron;
+const { app, BrowserWindow, Menu, Tray, globalShortcut, ipcMain, nativeImage, screen, desktopCapturer } = electron;
 const { InterviewCopilot } = require('./services/interview-copilot');
 
 if (process.platform === 'win32' && process.env.DISABLE_OVERLAY_GPU !== 'false') {
@@ -79,6 +79,9 @@ function getCopilot() {
   if (!copilot) {
     process.env.SCREENSHOT_TEMP_DIR = path.join(app.getPath('userData'), 'screenshots');
     copilot = new InterviewCopilot();
+    if (copilot.screenCapture && typeof copilot.screenCapture.setElectronCaptureProvider === 'function') {
+      copilot.screenCapture.setElectronCaptureProvider(captureScreenWithElectron);
+    }
     writeAppLog('copilot_initialized', {
       screenshotTempDir: process.env.SCREENSHOT_TEMP_DIR
     });
@@ -151,7 +154,6 @@ function loadOverlayState() {
     opacity: Number(process.env.OVERLAY_OPACITY || 0.88),
     preferences: {
       focus: false,
-      screenProtection: process.env.SCREEN_PROTECTION !== 'false',
       theme: 'dark',
       dock: 'floating'
     }
@@ -296,7 +298,6 @@ function createOverlayWindow() {
     process.platform !== 'win32' && process.env.OVERLAY_TRANSPARENT !== 'false'
   );
   const overlayBackgroundColor = useTransparentOverlay ? '#00000000' : '#101827';
-  const enableScreenProtection = process.env.SCREEN_PROTECTION !== 'false';
 
   writeAppLog('overlay_window_create_requested', {
     bounds: overlayState.bounds,
@@ -304,8 +305,7 @@ function createOverlayWindow() {
     preferences: overlayState.preferences,
     transparent: useTransparentOverlay,
     backgroundColor: overlayBackgroundColor,
-    platform: process.platform,
-    screenProtection: enableScreenProtection
+    platform: process.platform
   });
 
   const windowOptions = {
@@ -329,53 +329,16 @@ function createOverlayWindow() {
     }
   };
 
-  // Add screen recording protection options
-  if (enableScreenProtection) {
-    // Hide from screen recording APIs
-    windowOptions.webPreferences.experimentalFeatures = true;
-    
-    // Platform-specific screen protection
-    if (process.platform === 'win32') {
-      // Windows: Use WS_EX_NOREDIRECTIONBITMAP to exclude from DWM
-      windowOptions.skipTaskbar = true;
-      windowOptions.type = 'toolbar'; // Makes window less likely to be captured
-    } else if (process.platform === 'darwin') {
-      // macOS: Set window level to prevent screen recording
-      windowOptions.level = 'screen-saver';
-    } else if (process.platform === 'linux') {
-      // Linux: Use override-redirect to bypass compositor
-      windowOptions.type = 'toolbar';
-      windowOptions.skipTaskbar = true;
-    }
-  }
-
   overlayWindow = new BrowserWindow(windowOptions);
 
   writeAppLog('overlay_window_created', {
     bounds: overlayWindow.getBounds(),
-    transparent: useTransparentOverlay,
-    screenProtection: enableScreenProtection
+    transparent: useTransparentOverlay
   });
 
   overlayWindow.setAlwaysOnTop(true, 'screen-saver');
   overlayWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
   overlayWindow.setBackgroundColor(overlayBackgroundColor);
-
-  // Additional screen protection measures
-  if (enableScreenProtection) {
-    try {
-      // Enable OS-level content protection to hide from screen recordings
-      overlayWindow.setContentProtection(true);
-      
-      writeAppLog('overlay_screen_protection_enabled', {
-        platform: process.platform,
-        method: 'setContentProtection'
-      });
-      
-    } catch (error) {
-      writeAppLog('overlay_screen_protection_failed', { error: error.message });
-    }
-  }
 
   overlayWindow.setOpacity(overlayState.opacity);
   overlayWindow.setIgnoreMouseEvents(false);
@@ -458,6 +421,61 @@ async function logOverlayCaptureDiagnostics() {
   } catch (error) {
     writeAppError('overlay_capture_diagnostics_failed', error);
   }
+}
+
+async function captureScreenWithElectron(displayId = undefined) {
+  const displays = screen.getAllDisplays();
+  const cursorPoint = screen.getCursorScreenPoint();
+  const targetDisplay = displayId
+    ? displays.find((display) => String(display.id) === String(displayId))
+    : screen.getDisplayNearestPoint(cursorPoint);
+  const display = targetDisplay || screen.getPrimaryDisplay();
+  const thumbnailSize = {
+    width: Math.max(1, Math.round(display.size.width * display.scaleFactor)),
+    height: Math.max(1, Math.round(display.size.height * display.scaleFactor))
+  };
+
+  writeAppLog('electron_screen_capture_requested', {
+    displayId: display.id,
+    bounds: display.bounds,
+    scaleFactor: display.scaleFactor,
+    thumbnailSize
+  });
+
+  const sources = await desktopCapturer.getSources({
+    types: ['screen'],
+    thumbnailSize,
+    fetchWindowIcons: false
+  });
+
+  const source = sources.find((item) => String(item.display_id) === String(display.id)) || sources[0];
+  if (!source || source.thumbnail.isEmpty()) {
+    throw new Error('Electron desktopCapturer returned an empty screen thumbnail');
+  }
+
+  const img = source.thumbnail.toPNG();
+  if (!img || img.length === 0) {
+    throw new Error('Electron desktopCapturer returned an empty PNG buffer');
+  }
+
+  const screenshotDir = process.env.SCREENSHOT_TEMP_DIR || path.join(app.getPath('userData'), 'screenshots');
+  fs.mkdirSync(screenshotDir, { recursive: true });
+  const filepath = path.join(screenshotDir, `screenshot_${Date.now()}_electron.png`);
+  fs.writeFileSync(filepath, img);
+
+  writeAppLog('electron_screen_capture_success', {
+    filepath,
+    bytes: img.length,
+    sourceId: source.id,
+    displayId: source.display_id
+  });
+
+  return {
+    path: filepath,
+    buffer: img,
+    timestamp: new Date().toISOString(),
+    source: 'electron-desktopCapturer'
+  };
 }
 
 function toggleOverlayWindow() {

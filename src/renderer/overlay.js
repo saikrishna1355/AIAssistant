@@ -10,7 +10,6 @@ const elements = {
   screenshotBtn: document.getElementById('overlay-screenshot'),
   opacity: document.getElementById('overlay-opacity'),
   focusBtn: document.getElementById('overlay-focus'),
-  screenProtectBtn: document.getElementById('overlay-screen-protect'),
   themeBtn: document.getElementById('overlay-theme'),
   dockBtn: document.getElementById('overlay-dock'),
   closeBtn: document.getElementById('close-overlay'),
@@ -19,7 +18,6 @@ const elements = {
 
 const overlayState = {
   focus: false,
-  screenProtection: true,
   theme: 'dark',
   dock: 'floating'
 };
@@ -131,60 +129,15 @@ function applyPreferences(preferences = {}) {
   Object.assign(overlayState, preferences);
 
   document.body.classList.toggle('focus-mode', overlayState.focus);
-  document.body.classList.toggle('screen-protected', overlayState.screenProtection);
   document.body.classList.toggle('theme-light', overlayState.theme === 'light');
   document.body.dataset.dock = overlayState.dock;
 
-  // Set screen protection attribute
-  document.documentElement.setAttribute('data-screen-protection', overlayState.screenProtection ? 'enabled' : 'disabled');
-
   elements.focusBtn.classList.toggle('active', overlayState.focus);
-  elements.screenProtectBtn.classList.toggle('active', overlayState.screenProtection);
   elements.themeBtn.textContent = overlayState.theme === 'light' ? 'Dark' : 'Light';
   elements.dockBtn.textContent = overlayState.dock === 'floating' ? 'Dock' : `Dock: ${overlayState.dock}`;
 
   if (preferences.opacity) {
     applyOpacity(preferences.opacity);
-  }
-
-  // Apply screen protection measures
-  if (overlayState.screenProtection) {
-    enableScreenProtection();
-  } else {
-    disableScreenProtection();
-  }
-}
-
-function enableScreenProtection() {
-  // OS-level protection is handled by setContentProtection(true) in main process
-  // This function now just handles UI indicators
-  try {
-    const indicator = document.querySelector('.screen-protection-indicator');
-    if (!indicator) {
-      const newIndicator = document.createElement('div');
-      newIndicator.className = 'screen-protection-indicator';
-      newIndicator.textContent = 'PROTECTED';
-      newIndicator.title = 'Hidden from screen recordings';
-      newIndicator.style.cssText = 'position:fixed;top:8px;right:8px;background:rgba(94,234,212,0.2);border:1px solid rgba(94,234,212,0.4);color:#5eead4;padding:2px 6px;border-radius:3px;font-size:10px;font-weight:bold;z-index:10000;pointer-events:none;font-family:monospace;';
-      document.body.appendChild(newIndicator);
-    }
-    
-    logOverlay('screen_protection_ui_enabled');
-  } catch (error) {
-    logOverlay('screen_protection_ui_failed', { error: error.message });
-  }
-}
-
-function disableScreenProtection() {
-  try {
-    const indicator = document.querySelector('.screen-protection-indicator');
-    if (indicator) {
-      indicator.remove();
-    }
-    
-    logOverlay('screen_protection_ui_disabled');
-  } catch (error) {
-    logOverlay('screen_protection_ui_disable_failed', { error: error.message });
   }
 }
 
@@ -254,10 +207,6 @@ elements.opacity.addEventListener('input', () => {
 
 elements.focusBtn.addEventListener('click', () => {
   updatePreferences({ focus: !overlayState.focus });
-});
-
-elements.screenProtectBtn.addEventListener('click', () => {
-  updatePreferences({ screenProtection: !overlayState.screenProtection });
 });
 
 elements.themeBtn.addEventListener('click', () => {
