@@ -286,15 +286,24 @@ function createOverlayWindow() {
     writeAppLog('overlay_window_existing_show');
     overlayWindow.show();
     overlayWindow.focus();
+    overlayWindow.moveTop();
     saveOverlayState({ visible: true });
     return overlayWindow;
   }
 
   const overlayState = loadOverlayState();
+  const useTransparentOverlay = process.env.OVERLAY_TRANSPARENT === 'true' || (
+    process.platform !== 'win32' && process.env.OVERLAY_TRANSPARENT !== 'false'
+  );
+  const overlayBackgroundColor = useTransparentOverlay ? '#00000000' : '#101827';
+
   writeAppLog('overlay_window_create_requested', {
     bounds: overlayState.bounds,
     opacity: overlayState.opacity,
-    preferences: overlayState.preferences
+    preferences: overlayState.preferences,
+    transparent: useTransparentOverlay,
+    backgroundColor: overlayBackgroundColor,
+    platform: process.platform
   });
 
   overlayWindow = new BrowserWindow({
@@ -303,8 +312,10 @@ function createOverlayWindow() {
     minHeight: 420,
     title: 'Interview Copilot Overlay',
     frame: false,
-    transparent: true,
-    backgroundColor: '#00000000',
+    transparent: useTransparentOverlay,
+    backgroundColor: overlayBackgroundColor,
+    show: false,
+    paintWhenInitiallyHidden: true,
     resizable: true,
     alwaysOnTop: true,
     skipTaskbar: false,
@@ -317,12 +328,13 @@ function createOverlayWindow() {
   });
 
   writeAppLog('overlay_window_created', {
-    bounds: overlayWindow.getBounds()
+    bounds: overlayWindow.getBounds(),
+    transparent: useTransparentOverlay
   });
 
   overlayWindow.setAlwaysOnTop(true, 'screen-saver');
   overlayWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
-  overlayWindow.setBackgroundColor('#00000000');
+  overlayWindow.setBackgroundColor(overlayBackgroundColor);
 
   overlayWindow.setOpacity(overlayState.opacity);
   overlayWindow.setIgnoreMouseEvents(false);
@@ -340,6 +352,7 @@ function createOverlayWindow() {
   overlayWindow.webContents.on('did-finish-load', () => {
     writeAppLog('overlay_window_did_finish_load');
     overlayWindow.showInactive();
+    overlayWindow.moveTop();
     overlayWindow.webContents.invalidate();
     setTimeout(() => logOverlayCaptureDiagnostics(), 500);
   });
@@ -349,6 +362,15 @@ function createOverlayWindow() {
 
   overlayWindow.on('move', () => saveOverlayState({ bounds: overlayWindow.getBounds() }));
   overlayWindow.on('resize', () => saveOverlayState({ bounds: overlayWindow.getBounds() }));
+  overlayWindow.once('ready-to-show', () => {
+    writeAppLog('overlay_window_ready_to_show', {
+      visible: overlayWindow.isVisible(),
+      opacity: overlayWindow.getOpacity(),
+      bounds: overlayWindow.getBounds()
+    });
+    overlayWindow.showInactive();
+    overlayWindow.moveTop();
+  });
   overlayWindow.on('show', () => saveOverlayState({ visible: true, bounds: overlayWindow.getBounds() }));
   overlayWindow.on('hide', () => saveOverlayState({ visible: false, bounds: overlayWindow.getBounds() }));
 

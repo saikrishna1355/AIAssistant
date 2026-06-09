@@ -1,6 +1,6 @@
 {
   "name": "interview-copilot-ai",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Desktop AI Interview and Coding Copilot",
   "main": "src/main.js",
   "scripts": {
@@ -49,5 +49,8 @@
     "nodemon": "^3.0.1"
   },
   "author": "Interview Copilot AI Team",
-  "license": "MIT"
+  "license": "MIT",
+  "engines": {
+    "node": ">=22.0.0"
+  }
 }
