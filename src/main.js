@@ -27,6 +27,10 @@ if (!electron || !electron.app) {
 const { app, BrowserWindow, Menu, Tray, globalShortcut, ipcMain, nativeImage, screen } = electron;
 const { InterviewCopilot } = require('./services/interview-copilot');
 
+if (process.platform === 'win32' && process.env.DISABLE_OVERLAY_GPU !== 'false') {
+  app.disableHardwareAcceleration();
+}
+
 let mainWindow;
 let overlayWindow;
 let tray;
@@ -300,6 +304,7 @@ function createOverlayWindow() {
     title: 'Interview Copilot Overlay',
     frame: false,
     transparent: true,
+    backgroundColor: '#00000000',
     resizable: true,
     alwaysOnTop: true,
     skipTaskbar: false,
@@ -317,6 +322,7 @@ function createOverlayWindow() {
 
   overlayWindow.setAlwaysOnTop(true, 'screen-saver');
   overlayWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
+  overlayWindow.setBackgroundColor('#00000000');
 
   overlayWindow.setOpacity(overlayState.opacity);
   overlayWindow.setIgnoreMouseEvents(false);
@@ -333,6 +339,9 @@ function createOverlayWindow() {
   });
   overlayWindow.webContents.on('did-finish-load', () => {
     writeAppLog('overlay_window_did_finish_load');
+    overlayWindow.showInactive();
+    overlayWindow.webContents.invalidate();
+    setTimeout(() => logOverlayCaptureDiagnostics(), 500);
   });
   overlayWindow.webContents.on('render-process-gone', (event, details) => {
     writeAppLog('overlay_window_render_process_gone', details);
@@ -353,6 +362,39 @@ function createOverlayWindow() {
   global.overlayWindow = overlayWindow;
   overlayWindow.webContents.once('did-finish-load', sendOverlayPreferences);
   return overlayWindow;
+}
+
+async function logOverlayCaptureDiagnostics() {
+  if (!overlayWindow || overlayWindow.isDestroyed()) {
+    return;
+  }
+
+  try {
+    const image = await overlayWindow.webContents.capturePage();
+    const size = image.getSize();
+    const bitmap = image.toBitmap();
+    let nonTransparentPixels = 0;
+    let sampledPixels = 0;
+
+    for (let index = 3; index < bitmap.length; index += 16) {
+      sampledPixels += 1;
+      if (bitmap[index] > 0) {
+        nonTransparentPixels += 1;
+      }
+    }
+
+    writeAppLog('overlay_capture_diagnostics', {
+      size,
+      sampledPixels,
+      nonTransparentPixels,
+      visible: overlayWindow.isVisible(),
+      focused: overlayWindow.isFocused(),
+      opacity: overlayWindow.getOpacity(),
+      bounds: overlayWindow.getBounds()
+    });
+  } catch (error) {
+    writeAppError('overlay_capture_diagnostics_failed', error);
+  }
 }
 
 function toggleOverlayWindow() {
@@ -560,6 +602,14 @@ handleIpc('overlay-set-opacity', async (event, opacity) => {
 
   saveOverlayState({ opacity: nextOpacity });
   return { success: true, opacity: nextOpacity };
+});
+
+handleIpc('overlay-renderer-log', async (event, eventName, details = {}) => {
+  writeAppLog(eventName || 'overlay_renderer_log', {
+    senderUrl: event.sender ? event.sender.getURL() : '',
+    ...details
+  });
+  return { success: true };
 });
 
 function updateOverlayPreferences(patch = {}) {

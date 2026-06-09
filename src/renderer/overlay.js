@@ -30,6 +30,58 @@ if (!api) {
   throw new Error('Overlay preload bridge is unavailable');
 }
 
+function logOverlay(eventName, details = {}) {
+  try {
+    api.log(eventName, details);
+  } catch (error) {
+    console.error('Overlay log failed:', error);
+  }
+}
+
+function collectRenderDiagnostics() {
+  const shell = document.querySelector('.overlay-shell');
+  const shellStyle = shell ? window.getComputedStyle(shell) : null;
+  const bodyStyle = window.getComputedStyle(document.body);
+
+  return {
+    bodyTextLength: document.body.innerText.length,
+    bodyClientWidth: document.body.clientWidth,
+    bodyClientHeight: document.body.clientHeight,
+    bodyBackground: bodyStyle.backgroundColor,
+    shellExists: Boolean(shell),
+    shellClientWidth: shell ? shell.clientWidth : 0,
+    shellClientHeight: shell ? shell.clientHeight : 0,
+    shellBackground: shellStyle ? shellStyle.backgroundImage || shellStyle.backgroundColor : '',
+    shellDisplay: shellStyle ? shellStyle.display : '',
+    shellOpacity: shellStyle ? shellStyle.opacity : '',
+    devicePixelRatio: window.devicePixelRatio
+  };
+}
+
+window.addEventListener('DOMContentLoaded', () => {
+  logOverlay('overlay_dom_content_loaded', collectRenderDiagnostics());
+});
+
+window.addEventListener('load', () => {
+  logOverlay('overlay_window_loaded', collectRenderDiagnostics());
+});
+
+window.addEventListener('error', (event) => {
+  logOverlay('overlay_renderer_error', {
+    message: event.message,
+    filename: event.filename,
+    lineno: event.lineno,
+    colno: event.colno,
+    stack: event.error && event.error.stack ? event.error.stack : null
+  });
+});
+
+window.addEventListener('unhandledrejection', (event) => {
+  logOverlay('overlay_renderer_unhandled_rejection', {
+    reason: event.reason && event.reason.stack ? event.reason.stack : String(event.reason)
+  });
+});
+
 function setText(element, text) {
   element.classList.remove('muted');
   element.textContent = text || '';
@@ -188,5 +240,11 @@ api.invoke('overlay-get-state').then((state) => {
       ...state.preferences,
       opacity: state.opacity
     });
+    logOverlay('overlay_state_applied', collectRenderDiagnostics());
   }
+}).catch((error) => {
+  logOverlay('overlay_get_state_failed', {
+    message: error.message,
+    stack: error.stack
+  });
 });
