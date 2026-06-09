@@ -150,7 +150,6 @@ function loadOverlayState() {
     visible: false,
     opacity: Number(process.env.OVERLAY_OPACITY || 0.88),
     preferences: {
-      privacy: false,
       focus: false,
       screenProtection: process.env.SCREEN_PROTECTION !== 'false',
       theme: 'dark',
@@ -364,22 +363,15 @@ function createOverlayWindow() {
 
   // Additional screen protection measures
   if (enableScreenProtection) {
-    // Try to hide from screen recording
     try {
-      if (process.platform === 'darwin') {
-        // macOS: Set window to bypass screen recording
-        overlayWindow.setContentProtection(true);
-      }
+      // Enable OS-level content protection to hide from screen recordings
+      overlayWindow.setContentProtection(true);
       
-      // Set window to not appear in screenshots
-      overlayWindow.setDocumentEdited(false);
-      overlayWindow.setRepresentedFilename('');
+      writeAppLog('overlay_screen_protection_enabled', {
+        platform: process.platform,
+        method: 'setContentProtection'
+      });
       
-      // Make window non-recordable by setting special properties
-      overlayWindow.webContents.executeJavaScript(`
-        document.documentElement.style.setProperty('--screen-protection', 'enabled');
-        document.body.classList.add('screen-protected');
-      `);
     } catch (error) {
       writeAppLog('overlay_screen_protection_failed', { error: error.message });
     }
@@ -505,7 +497,6 @@ app.whenReady().then(() => {
 
     const shortcuts = [
       ['CommandOrControl+Shift+O', toggleOverlayWindow],
-      ['CommandOrControl+Shift+P', () => toggleOverlayPreference('privacy')],
       ['CommandOrControl+Shift+F', () => toggleOverlayPreference('focus')],
       ['CommandOrControl+Shift+D', () => cycleOverlayDock()],
       ['CommandOrControl+Shift+M', () => moveOverlayToNextDisplay()]
