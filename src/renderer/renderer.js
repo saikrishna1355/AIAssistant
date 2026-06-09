@@ -439,11 +439,87 @@ class InterviewCopilotUI {
     this.setButtonLoading(this.elements.screenshotBtn, 'Reading...');
     try {
       const result = await this.invoke('take-screenshot');
-      if (!result.success) return this.showError(result.message);
+      if (!result.success) {
+        // If screenshot fails on Windows, offer permission help
+        if (ipcRenderer && result.message && result.message.includes('Windows') && result.message.includes('permission')) {
+          const shouldFix = confirm(
+            `${result.message}\n\nWould you like to check and fix Windows screenshot permissions?`
+          );
+          
+          if (shouldFix) {
+            await this.checkAndFixScreenshotPermissions();
+            return;
+          }
+        }
+        return this.showError(result.message);
+      }
       this.displayScreenshotAnalysis(result);
       if (result.solution) this.addAnswer(result.solution, result.type || 'coding');
     } catch (error) {
       this.showError(`Screenshot failed: ${error.message}`);
+    } finally {
+      this.resetButton(this.elements.screenshotBtn, 'Read Screen');
+    }
+  }
+
+  async checkAndFixScreenshotPermissions() {
+    if (!ipcRenderer) {
+      this.showError('Permission fixes are only available in the desktop app');
+      return;
+    }
+
+    try {
+      // First check current permissions
+      this.setButtonLoading(this.elements.screenshotBtn, 'Checking...');
+      const checkResult = await ipcRenderer.invoke('check-screenshot-permissions');
+      
+      if (checkResult.success && checkResult.diagnosis) {
+        const { diagnosis } = checkResult;
+        
+        if (diagnosis.screenApiAccess) {
+          window.alert('Screenshot permissions are working correctly. Try taking a screenshot again.');
+          return;
+        }
+        
+        // Show diagnostic information
+        const diagMessage = [
+          'Screenshot Permission Diagnosis:',
+          `• Running as Admin: ${diagnosis.isAdmin ? 'Yes' : 'No'}`,
+          `• PowerShell Access: ${diagnosis.powershellAccess ? 'Yes' : 'No'}`,
+          `• Screen API Access: ${diagnosis.screenApiAccess ? 'Yes' : 'No'}`,
+          `• Execution Policy: ${diagnosis.executionPolicy}`,
+          '',
+          'Suggested fixes:',
+          ...diagnosis.suggestions.map(s => `• ${s}`),
+          '',
+          'Try automatic fix?'
+        ].join('\n');
+        
+        const shouldAutoFix = confirm(diagMessage);
+        
+        if (shouldAutoFix) {
+          this.setButtonLoading(this.elements.screenshotBtn, 'Fixing...');
+          const fixResult = await ipcRenderer.invoke('fix-screenshot-permissions');
+          
+          if (fixResult.success) {
+            window.alert('Permissions fixed! Try taking a screenshot again.');
+          } else {
+            const fixMessage = [
+              'Automatic fix failed. Manual steps required:',
+              '',
+              ...(fixResult.suggestions || []).map(s => `• ${s}`),
+              '',
+              'After completing these steps, restart the application.'
+            ].join('\n');
+            
+            window.alert(fixMessage);
+          }
+        }
+      } else {
+        this.showError('Unable to check screenshot permissions');
+      }
+    } catch (error) {
+      this.showError(`Permission check failed: ${error.message}`);
     } finally {
       this.resetButton(this.elements.screenshotBtn, 'Read Screen');
     }

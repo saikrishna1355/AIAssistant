@@ -633,6 +633,52 @@ handleIpc('take-screenshot', async () => {
   return await getCopilot().takeScreenshot();
 });
 
+handleIpc('check-screenshot-permissions', async () => {
+  if (process.platform === 'win32') {
+    try {
+      const copilot = getCopilot();
+      const diagnosis = await copilot.screenCapture.diagnoseWindowsIssues();
+      return {
+        success: true,
+        platform: 'win32',
+        diagnosis
+      };
+    } catch (error) {
+      return {
+        success: false,
+        message: 'Permission check failed',
+        error: error.message
+      };
+    }
+  } else {
+    return {
+      success: true,
+      platform: process.platform,
+      message: 'Permission check not needed for this platform'
+    };
+  }
+});
+
+handleIpc('fix-screenshot-permissions', async () => {
+  if (process.platform === 'win32') {
+    try {
+      const copilot = getCopilot();
+      return await copilot.screenCapture.fixWindowsPermissions();
+    } catch (error) {
+      return {
+        success: false,
+        message: 'Permission fix failed',
+        error: error.message
+      };
+    }
+  } else {
+    return {
+      success: true,
+      message: 'Permission fix not needed for this platform'
+    };
+  }
+});
+
 handleIpc('generate-answer', async (event, question, type) => {
   return await getCopilot().generateAnswer(question, type);
 });

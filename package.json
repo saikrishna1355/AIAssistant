@@ -17,16 +17,68 @@
   "build": {
     "appId": "com.interview-copilot-ai",
     "productName": "Interview Copilot AI",
-    "files": ["src/**/*", "public/**/*"],
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "src/**/*",
+      "public/**/*",
+      "node_modules/**/*",
+      "!node_modules/**/*.map",
+      "!**/node_modules/*/{CHANGELOG.md,README.md,README,readme.md,readme}",
+      "!**/node_modules/*/{test,__tests__,tests,powered-test,example,examples}",
+      "!**/node_modules/*.d.ts",
+      "!**/node_modules/.bin",
+      "!**/*.{iml,o,hprof,orig,pyc,pyo,rbc,swp,csproj,sln,xproj}",
+      "!.editorconfig",
+      "!**/._*",
+      "!**/{.DS_Store,.git,.hg,.svn,CVS,RCS,SCCS,.gitignore,.gitattributes}",
+      "!**/{__pycache__,thumbs.db,.flowconfig,.idea,.vs,.nyc_output}",
+      "!**/{appveyor.yml,.travis.yml,circle.yml}",
+      "!**/{npm-debug.log,yarn.lock,.yarn-integrity,.yarn-metadata.json}"
+    ],
+    "extraResources": [
+      {
+        "from": "eng.traineddata",
+        "to": "eng.traineddata"
+      },
+      {
+        "from": "check-windows-permissions.bat",
+        "to": "check-windows-permissions.bat"
+      },
+      {
+        "from": "WINDOWS-SCREENSHOT-HELP.md",
+        "to": "WINDOWS-SCREENSHOT-HELP.md"
+      }
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": ["x64"]
+        },
+        {
+          "target": "portable",
+          "arch": ["x64"]
+        }
+      ],
+      "publisherName": "Interview Copilot AI Team",
+      "verifyUpdateCodeSignature": false
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Interview Copilot AI"
+    },
     "mac": {
       "target": ["dmg", "zip"],
       "category": "public.app-category.productivity"
     },
-    "win": {
-      "target": ["nsis", "portable"]
-    },
     "linux": {
-      "target": ["AppImage"]
+      "target": ["AppImage", "deb"],
+      "category": "Office"
     }
   },
   "dependencies": {
