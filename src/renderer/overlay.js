@@ -25,6 +25,11 @@ const overlayState = {
   dock: 'floating'
 };
 
+if (!api) {
+  document.body.innerHTML = '<div style="padding:16px;color:#fff;background:#111827;font-family:Segoe UI,Arial,sans-serif">Overlay failed to initialize: preload bridge is unavailable. Rebuild and reinstall the desktop app.</div>';
+  throw new Error('Overlay preload bridge is unavailable');
+}
+
 function setText(element, text) {
   element.classList.remove('muted');
   element.textContent = text || '';

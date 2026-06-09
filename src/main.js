@@ -10,14 +10,32 @@ let tray;
 let copilot;
 let overlayStatePath;
 
+function getCopilot() {
+  if (!copilot) {
+    copilot = new InterviewCopilot();
+    writeAppLog('InterviewCopilot service initialized');
+  }
+
+  return copilot;
+}
+
 function writeAppLog(message) {
   try {
-    const logPath = path.join(app.getPath('userData'), 'main.log');
+    const logDir = app.isReady() ? app.getPath('userData') : __dirname;
+    const logPath = path.join(logDir, 'main.log');
     fs.appendFileSync(logPath, `${new Date().toISOString()} ${message}\n`);
   } catch (error) {
     console.warn('Failed to write app log:', error.message);
   }
 }
+
+process.on('uncaughtException', (error) => {
+  writeAppLog(`Uncaught exception: ${error.stack || error.message}`);
+});
+
+process.on('unhandledRejection', (reason) => {
+  writeAppLog(`Unhandled rejection: ${reason && reason.stack ? reason.stack : String(reason)}`);
+});
 
 function getOverlayStatePath() {
   if (!overlayStatePath) {
@@ -149,8 +167,6 @@ function createWindow() {
     mainWindow.webContents.openDevTools();
   }
 
-  copilot = new InterviewCopilot();
-  
   // Store reference for IPC communication
   global.mainWindow = mainWindow;
 
@@ -228,6 +244,7 @@ function toggleOverlayWindow() {
 }
 
 app.whenReady().then(() => {
+  getCopilot();
   createWindow();
   createTray();
   globalShortcut.register('CommandOrControl+Shift+O', toggleOverlayWindow);
@@ -259,7 +276,7 @@ app.on('activate', () => {
 
 // IPC handlers
 ipcMain.handle('start-listening', async () => {
-  const result = await copilot.startListening();
+  const result = await getCopilot().startListening();
   if (result.success) {
     createOverlayWindow();
   }
@@ -267,19 +284,19 @@ ipcMain.handle('start-listening', async () => {
 });
 
 ipcMain.handle('stop-listening', async () => {
-  return await copilot.stopListening();
+  return await getCopilot().stopListening();
 });
 
 ipcMain.handle('take-screenshot', async () => {
-  return await copilot.takeScreenshot();
+  return await getCopilot().takeScreenshot();
 });
 
 ipcMain.handle('generate-answer', async (event, question, type) => {
-  return await copilot.generateAnswer(question, type);
+  return await getCopilot().generateAnswer(question, type);
 });
 
 ipcMain.handle('debug-code', async (event, input) => {
-  return await copilot.debugCode(input);
+  return await getCopilot().debugCode(input);
 });
 
 ipcMain.handle('open-overlay', async () => {
