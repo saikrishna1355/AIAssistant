@@ -386,6 +386,8 @@ function createOverlayWindow() {
   overlayWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
   overlayWindow.setBackgroundColor(overlayBackgroundColor);
 
+  overlayWindow.setContentProtection(true);
+
   overlayWindow.setOpacity(overlayState.opacity);
   overlayWindow.setIgnoreMouseEvents(false);
   const overlayFile = path.join(__dirname, "renderer", "overlay.html");
