@@ -70,6 +70,8 @@ If AWS Transcribe or local audio is unavailable, the app falls back to demo tran
 ```text
 PORT=3003
 NODE_ENV=development
+REMOTE_API_BASE_URL=
+REMOTE_API_KEY=
 AWS_REGION=us-east-1
 TRANSCRIBE_REGION=us-east-1
 AWS_ACCESS_KEY_ID=your_access_key
@@ -79,15 +81,14 @@ BEDROCK_MODEL_ID=anthropic.claude-3-sonnet-20240229-v1:0
 BEDROCK_INFERENCE_PROFILE_ID=
 ALWAYS_ON_TOP=false
 OVERLAY_OPACITY=0.88
-SCREEN_PROTECTION=true
 AUDIO_RECORDER=
 DESKTOP_DOWNLOAD_URL=
 DESKTOP_DOWNLOAD_LABEL=Download Desktop App
 ```
 
+Set `REMOTE_API_BASE_URL=https://your-render-app.onrender.com` in the desktop app to send answer generation to your hosted backend. In that mode, desktop users do not need AWS Bedrock credentials locally for answer generation.
 Set `ALWAYS_ON_TOP=true` for an overlay-like desktop utility window.
 Set `AUDIO_RECORDER=arecord`, `sox`, or `rec` to force a specific local recorder.
-Set `SCREEN_PROTECTION=true` to enable screen recording protection (default: true).
 For Claude 4.5 models that do not support on-demand invocation, set `BEDROCK_INFERENCE_PROFILE_ID` instead, for example `eu.anthropic.claude-haiku-4-5-20251001-v1:0` in EU regions.
 Set `TRANSCRIBE_REGION` to an Amazon Transcribe Streaming-supported region. For example, use `eu-central-1` when `AWS_REGION=eu-north-1`, because Stockholm currently supports Transcribe batch but not streaming.
 
@@ -102,9 +103,8 @@ Overlay controls:
 - `Ctrl+Shift+F`: toggle focus mode
 - `Ctrl+Shift+D`: cycle dock mode
 - `Ctrl+Shift+M`: move overlay to next monitor
-- `Shield` button: toggle screen recording protection
 
-The overlay is a standard visible desktop window. The screen protection feature attempts to hide the overlay from screen recording software using platform-specific methods, but this is not foolproof and depends on the recording software used.
+The overlay is a standard visible desktop window.
 
 ## Hosted Web + Desktop Download
 

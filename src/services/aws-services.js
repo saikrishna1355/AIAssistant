@@ -1,32 +1,57 @@
-const { BedrockRuntimeClient, InvokeModelCommand } = require('@aws-sdk/client-bedrock-runtime');
-const { TranscribeClient } = require('@aws-sdk/client-transcribe');
-require('dotenv').config();
+const {
+  BedrockRuntimeClient,
+  InvokeModelCommand,
+} = require("@aws-sdk/client-bedrock-runtime");
+const { TranscribeClient } = require("@aws-sdk/client-transcribe");
+require("dotenv").config();
 
 class AWSServices {
   constructor() {
-    this.region = process.env.AWS_REGION || 'us-east-1';
-    this.modelId = process.env.BEDROCK_MODEL_ID || 'anthropic.claude-3-sonnet-20240229-v1:0';
-    this.inferenceProfileId = process.env.BEDROCK_INFERENCE_PROFILE_ID || '';
+    this.remoteApiBaseUrl = (
+      process.env.REMOTE_API_BASE_URL || "https://aiassistant-j3q3.onrender.com"
+    ).replace(/\/+$/, "");
+    this.remoteApiEnabled =
+      Boolean(this.remoteApiBaseUrl) &&
+      process.env.INTERVIEW_COPILOT_SERVER !== "true";
+    this.region = process.env.AWS_REGION || "us-east-1";
+    this.modelId =
+      process.env.BEDROCK_MODEL_ID ||
+      "anthropic.claude-haiku-4-5-20251001-v1:0";
+    this.inferenceProfileId =
+      process.env.BEDROCK_INFERENCE_PROFILE_ID ||
+      "eu.anthropic.claude-haiku-4-5-20251001-v1:0";
     this.resolvedModelId = this.resolveModelId();
-    this.bedrock = new BedrockRuntimeClient({ 
-      region: this.region
+    this.bedrock = new BedrockRuntimeClient({
+      region: this.region,
     });
-    this.transcribe = new TranscribeClient({ 
-      region: this.region
+    this.transcribe = new TranscribeClient({
+      region: this.region,
     });
   }
 
-  async generateAnswer(question, questionType = 'general', options = {}) {
+  async generateAnswer(question, questionType = "general", options = {}) {
+    if (this.remoteApiEnabled) {
+      return await this.generateAnswerViaRemoteApi(
+        question,
+        questionType,
+        options,
+      );
+    }
+
     const prompt = this.buildPrompt(question, questionType, options);
-    
+
     const body = JSON.stringify({
       anthropic_version: "bedrock-2023-05-31",
-      max_tokens: questionType === 'coding' || questionType === 'debug' ? 1800 : 1000,
-      messages: [{
-        role: "user",
-        content: prompt
-      }],
-      temperature: questionType === 'coding' || questionType === 'debug' ? 0.25 : 0.55
+      max_tokens:
+        questionType === "coding" || questionType === "debug" ? 1800 : 1000,
+      messages: [
+        {
+          role: "user",
+          content: prompt,
+        },
+      ],
+      temperature:
+        questionType === "coding" || questionType === "debug" ? 0.25 : 0.55,
     });
 
     try {
@@ -34,21 +59,73 @@ class AWSServices {
         modelId: this.resolvedModelId,
         body: body,
         contentType: "application/json",
-        accept: "application/json"
+        accept: "application/json",
       });
 
       const response = await this.bedrock.send(command);
       const responseBody = JSON.parse(new TextDecoder().decode(response.body));
       return responseBody.content[0].text;
     } catch (error) {
-      console.error('Bedrock error:', error);
+      console.error("Bedrock error:", error);
       return [
-        'Bedrock could not generate a response.',
-        'Check AWS credentials, region, model access, and BEDROCK_MODEL_ID or BEDROCK_INFERENCE_PROFILE_ID in your environment.',
+        "Bedrock could not generate a response.",
+        "Check AWS credentials, region, model access, and BEDROCK_MODEL_ID or BEDROCK_INFERENCE_PROFILE_ID in your environment.",
         `Region: ${this.region}`,
         `Configured model: ${this.modelId}`,
-        `Invoked model/profile: ${this.resolvedModelId}`
-      ].join('\n');
+        `Invoked model/profile: ${this.resolvedModelId}`,
+      ].join("\n");
+    }
+  }
+
+  async generateAnswerViaRemoteApi(
+    question,
+    questionType = "general",
+    options = {},
+  ) {
+    const controller = new AbortController();
+    const timeout = setTimeout(
+      () => controller.abort(),
+      Number(process.env.REMOTE_API_TIMEOUT_MS || 120000),
+    );
+
+    try {
+      const response = await fetch(
+        `${this.remoteApiBaseUrl}/api/generate-answer`,
+        {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            ...(process.env.REMOTE_API_KEY
+              ? { "x-api-key": process.env.REMOTE_API_KEY }
+              : {}),
+          },
+          body: JSON.stringify({
+            question,
+            type: questionType,
+            options,
+          }),
+          signal: controller.signal,
+        },
+      );
+
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok || payload.success === false) {
+        throw new Error(
+          payload.message || `Remote API returned HTTP ${response.status}`,
+        );
+      }
+
+      return payload.answer || "Remote API returned no answer.";
+    } catch (error) {
+      console.error("Remote answer API error:", error);
+      return [
+        "Remote backend could not generate a response.",
+        "Check REMOTE_API_BASE_URL, backend status, and backend AWS credentials.",
+        `Remote API: ${this.remoteApiBaseUrl}`,
+        `Error: ${error.message || error}`,
+      ].join("\n");
+    } finally {
+      clearTimeout(timeout);
     }
   }
 
@@ -57,7 +134,10 @@ class AWSServices {
       return this.inferenceProfileId;
     }
 
-    if (this.modelId.startsWith('arn:') || this.hasInferenceProfilePrefix(this.modelId)) {
+    if (
+      this.modelId.startsWith("arn:") ||
+      this.hasInferenceProfilePrefix(this.modelId)
+    ) {
       return this.modelId;
     }
 
@@ -74,32 +154,34 @@ class AWSServices {
 
   requiresInferenceProfile(modelId) {
     return [
-      'anthropic.claude-haiku-4-5-20251001-v1:0',
-      'anthropic.claude-sonnet-4-5-20250929-v1:0',
-      'anthropic.claude-opus-4-5-20251101-v1:0'
+      "anthropic.claude-haiku-4-5-20251001-v1:0",
+      "anthropic.claude-sonnet-4-5-20250929-v1:0",
+      "anthropic.claude-opus-4-5-20251101-v1:0",
     ].includes(modelId);
   }
 
   getInferenceProfilePrefix() {
-    if (this.region.startsWith('eu-')) return 'eu';
-    if (this.region.startsWith('us-')) return 'us';
-    if (this.region === 'ap-southeast-2') return 'au';
-    if (this.region === 'ap-northeast-1') return 'jp';
-    return 'global';
+    if (this.region.startsWith("eu-")) return "eu";
+    if (this.region.startsWith("us-")) return "us";
+    if (this.region === "ap-southeast-2") return "au";
+    if (this.region === "ap-northeast-1") return "jp";
+    return "global";
   }
 
   buildPrompt(question, questionType, options = {}) {
     const interviewContext = [
-      'You are Interview Copilot AI, a concise real-time interview assistant.',
-      'Give practical answers the candidate can speak naturally.',
-      'Avoid claiming private experience unless the user provided it.',
-      'When code is requested, prefer JavaScript unless another language is specified.',
-      options.role ? `Target role: ${options.role}` : '',
-      options.company ? `Company/context: ${options.company}` : ''
-    ].filter(Boolean).join('\n');
+      "You are Interview Copilot AI, a concise real-time interview assistant.",
+      "Give practical answers the candidate can speak naturally.",
+      "Avoid claiming private experience unless the user provided it.",
+      "When code is requested, prefer JavaScript unless another language is specified.",
+      options.role ? `Target role: ${options.role}` : "",
+      options.company ? `Company/context: ${options.company}` : "",
+    ]
+      .filter(Boolean)
+      .join("\n");
 
     switch (questionType) {
-      case 'behavioral':
+      case "behavioral":
         return `${interviewContext}
 
 Answer this behavioral interview question using the STAR method.
@@ -109,8 +191,8 @@ Include:
 3. A short closing line that ties the story to the role
 
 Question: ${question}`;
-        
-      case 'coding':
+
+      case "coding":
         return `${interviewContext}
 
 Solve this coding interview problem from transcript or screenshot OCR.
@@ -125,7 +207,7 @@ Return:
 Problem:
 ${question}`;
 
-      case 'debug':
+      case "debug":
         return `${interviewContext}
 
 Debug the following code/problem. Return:
@@ -137,14 +219,14 @@ Debug the following code/problem. Return:
 Input:
 ${question}`;
 
-      case 'technical':
+      case "technical":
         return `${interviewContext}
 
 Answer this technical interview question with a senior, structured explanation.
 Include the key concept, tradeoffs, pitfalls, and a concise example.
 
 Question: ${question}`;
-        
+
       default:
         return `${interviewContext}
 
