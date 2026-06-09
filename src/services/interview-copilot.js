@@ -118,7 +118,7 @@ class InterviewCopilot {
 
   async takeScreenshot() {
     try {
-      const screenshot = await this.screenCapture.capture();
+      const screenshot = await this.screenCapture.captureWithFallback();
       const extractedText = await this.screenCapture.extractText(screenshot);
       const type = this.questionDetector.isCodingProblem(extractedText) ? 'coding' : 'technical';
       const solution = await this.generateAnswer(extractedText, type);
@@ -132,7 +132,10 @@ class InterviewCopilot {
       };
     } catch (error) {
       console.error('Screenshot failed:', error);
-      return { success: false, message: 'Failed to capture screenshot' };
+      return { 
+        success: false, 
+        message: error.message || 'Failed to capture screenshot'
+      };
     }
   }
 
