@@ -5,7 +5,7 @@
   "main": "src/main.js",
   "scripts": {
     "start": "node src/server.js",
-    "electron": "electron src/main.js",
+    "electron": "node scripts/start-electron.js",
     "dev": "nodemon src/main.js",
     "build": "electron-builder",
     "build:win": "electron-builder --win",
@@ -51,4 +51,3 @@
   "author": "Interview Copilot AI Team",
   "license": "MIT"
 }
-

@@ -1,7 +1,30 @@
 require('dotenv').config();
-const { app, BrowserWindow, Menu, Tray, globalShortcut, ipcMain, nativeImage, screen } = require('electron');
 const fs = require('fs');
 const path = require('path');
+const electron = require('electron');
+
+if (!electron || !electron.app) {
+  const startupMessage = [
+    `${new Date().toISOString()} [main] electron_bootstrap_failed ${JSON.stringify({
+      electronType: typeof electron,
+      electronValue: typeof electron === 'string' ? electron : '[object]',
+      ELECTRON_RUN_AS_NODE: process.env.ELECTRON_RUN_AS_NODE || '',
+      message: 'Electron app API is unavailable. Remove ELECTRON_RUN_AS_NODE before launching the desktop app.'
+    })}`
+  ].join('\n');
+
+  console.error(startupMessage);
+
+  try {
+    fs.appendFileSync(path.join(process.cwd(), 'electron-startup.log'), `${startupMessage}\n`);
+  } catch (error) {
+    console.warn('Failed to write electron startup log:', error.message);
+  }
+
+  process.exit(1);
+}
+
+const { app, BrowserWindow, Menu, Tray, globalShortcut, ipcMain, nativeImage, screen } = electron;
 const { InterviewCopilot } = require('./services/interview-copilot');
 
 let mainWindow;
@@ -10,31 +33,91 @@ let tray;
 let copilot;
 let overlayStatePath;
 
+function safeJson(details = {}) {
+  try {
+    return JSON.stringify(details, (key, value) => {
+      const loweredKey = key.toLowerCase();
+      if (
+        loweredKey.includes('secret') ||
+        loweredKey.includes('token') ||
+        loweredKey.includes('password') ||
+        loweredKey.includes('credential') ||
+        loweredKey.includes('accesskey')
+      ) {
+        return '[redacted]';
+      }
+
+      if (Buffer.isBuffer(value)) {
+        return `[buffer:${value.length}]`;
+      }
+
+      if (typeof value === 'string') {
+        const maxLength = loweredKey.includes('stack') ? 4000 : loweredKey.includes('message') ? 1200 : 300;
+        if (value.length > maxLength) {
+          return `${value.slice(0, maxLength)}...[truncated ${value.length - maxLength} chars]`;
+        }
+      }
+
+      return value;
+    });
+  } catch (error) {
+    return JSON.stringify({ loggingError: error.message });
+  }
+}
+
+function getAppLogPath() {
+  const logDir = app.isReady() ? app.getPath('userData') : __dirname;
+  fs.mkdirSync(logDir, { recursive: true });
+  return path.join(logDir, 'main.log');
+}
+
 function getCopilot() {
   if (!copilot) {
+    process.env.SCREENSHOT_TEMP_DIR = path.join(app.getPath('userData'), 'screenshots');
     copilot = new InterviewCopilot();
-    writeAppLog('InterviewCopilot service initialized');
+    writeAppLog('copilot_initialized', {
+      screenshotTempDir: process.env.SCREENSHOT_TEMP_DIR
+    });
   }
 
   return copilot;
 }
 
-function writeAppLog(message) {
+function writeAppLog(eventName, details = {}) {
+  const line = `${new Date().toISOString()} [main] ${eventName} ${safeJson(details)}`;
+  console.log(line);
+
   try {
-    const logDir = app.isReady() ? app.getPath('userData') : __dirname;
-    const logPath = path.join(logDir, 'main.log');
-    fs.appendFileSync(logPath, `${new Date().toISOString()} ${message}\n`);
+    fs.appendFileSync(getAppLogPath(), `${line}\n`);
   } catch (error) {
     console.warn('Failed to write app log:', error.message);
   }
 }
 
+function writeAppError(eventName, error, details = {}) {
+  writeAppLog(eventName, {
+    ...details,
+    errorMessage: error && error.message ? error.message : String(error),
+    errorStack: error && error.stack ? error.stack : null
+  });
+}
+
 process.on('uncaughtException', (error) => {
-  writeAppLog(`Uncaught exception: ${error.stack || error.message}`);
+  writeAppError('uncaught_exception', error);
 });
 
 process.on('unhandledRejection', (reason) => {
-  writeAppLog(`Unhandled rejection: ${reason && reason.stack ? reason.stack : String(reason)}`);
+  writeAppError('unhandled_rejection', reason);
+});
+
+process.on('warning', (warning) => {
+  writeAppError('process_warning', warning, {
+    warningName: warning.name
+  });
+});
+
+process.on('exit', (code) => {
+  writeAppLog('process_exit', { code });
 });
 
 function getOverlayStatePath() {
@@ -103,6 +186,7 @@ function createTray() {
     'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAI0lEQVR4AWP4//8/AyUYTFhYGJqampjQNNRAqgGqGqAaAAC3FQMIkQJY5QAAAABJRU5ErkJggg=='
   );
   tray = new Tray(icon);
+  writeAppLog('tray_created');
   tray.setToolTip('Interview Copilot AI');
   tray.setContextMenu(Menu.buildFromTemplate([
     { label: 'Show Main App', click: () => mainWindow ? mainWindow.show() : createWindow() },
@@ -141,6 +225,7 @@ function saveOverlayState(patch = {}) {
 }
 
 function createWindow() {
+  writeAppLog('main_window_create_requested');
   mainWindow = new BrowserWindow({
     width: 1200,
     height: 800,
@@ -155,12 +240,27 @@ function createWindow() {
     }
   });
 
-  mainWindow.loadFile(path.join(__dirname, 'renderer', 'index.html'));
+  writeAppLog('main_window_created', {
+    bounds: mainWindow.getBounds(),
+    alwaysOnTop: process.env.ALWAYS_ON_TOP === 'true'
+  });
+
+  const mainFile = path.join(__dirname, 'renderer', 'index.html');
+  mainWindow.loadFile(mainFile).catch((error) => {
+    writeAppError('main_window_load_rejected', error, { file: mainFile });
+  });
   mainWindow.webContents.on('did-fail-load', (event, errorCode, errorDescription, validatedURL) => {
-    writeAppLog(`Main window failed to load ${validatedURL}: ${errorCode} ${errorDescription}`);
+    writeAppLog('main_window_did_fail_load', {
+      errorCode,
+      errorDescription,
+      validatedURL
+    });
+  });
+  mainWindow.webContents.on('did-finish-load', () => {
+    writeAppLog('main_window_did_finish_load');
   });
   mainWindow.webContents.on('render-process-gone', (event, details) => {
-    writeAppLog(`Main renderer process gone: ${JSON.stringify(details)}`);
+    writeAppLog('main_window_render_process_gone', details);
   });
   
   if (process.env.NODE_ENV === 'development') {
@@ -171,6 +271,7 @@ function createWindow() {
   global.mainWindow = mainWindow;
 
   mainWindow.on('closed', () => {
+    writeAppLog('main_window_closed');
     mainWindow = null;
     global.mainWindow = null;
   });
@@ -178,6 +279,7 @@ function createWindow() {
 
 function createOverlayWindow() {
   if (overlayWindow && !overlayWindow.isDestroyed()) {
+    writeAppLog('overlay_window_existing_show');
     overlayWindow.show();
     overlayWindow.focus();
     saveOverlayState({ visible: true });
@@ -185,6 +287,11 @@ function createOverlayWindow() {
   }
 
   const overlayState = loadOverlayState();
+  writeAppLog('overlay_window_create_requested', {
+    bounds: overlayState.bounds,
+    opacity: overlayState.opacity,
+    preferences: overlayState.preferences
+  });
 
   overlayWindow = new BrowserWindow({
     ...overlayState.bounds,
@@ -204,17 +311,31 @@ function createOverlayWindow() {
     }
   });
 
+  writeAppLog('overlay_window_created', {
+    bounds: overlayWindow.getBounds()
+  });
+
   overlayWindow.setAlwaysOnTop(true, 'screen-saver');
   overlayWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
 
   overlayWindow.setOpacity(overlayState.opacity);
   overlayWindow.setIgnoreMouseEvents(false);
-  overlayWindow.loadFile(path.join(__dirname, 'renderer', 'overlay.html'));
+  const overlayFile = path.join(__dirname, 'renderer', 'overlay.html');
+  overlayWindow.loadFile(overlayFile).catch((error) => {
+    writeAppError('overlay_window_load_rejected', error, { file: overlayFile });
+  });
   overlayWindow.webContents.on('did-fail-load', (event, errorCode, errorDescription, validatedURL) => {
-    writeAppLog(`Overlay failed to load ${validatedURL}: ${errorCode} ${errorDescription}`);
+    writeAppLog('overlay_window_did_fail_load', {
+      errorCode,
+      errorDescription,
+      validatedURL
+    });
+  });
+  overlayWindow.webContents.on('did-finish-load', () => {
+    writeAppLog('overlay_window_did_finish_load');
   });
   overlayWindow.webContents.on('render-process-gone', (event, details) => {
-    writeAppLog(`Overlay renderer process gone: ${JSON.stringify(details)}`);
+    writeAppLog('overlay_window_render_process_gone', details);
   });
 
   overlayWindow.on('move', () => saveOverlayState({ bounds: overlayWindow.getBounds() }));
@@ -223,6 +344,7 @@ function createOverlayWindow() {
   overlayWindow.on('hide', () => saveOverlayState({ visible: false, bounds: overlayWindow.getBounds() }));
 
   overlayWindow.on('closed', () => {
+    writeAppLog('overlay_window_closed');
     saveOverlayState({ visible: false });
     overlayWindow = null;
     global.overlayWindow = null;
@@ -235,47 +357,154 @@ function createOverlayWindow() {
 
 function toggleOverlayWindow() {
   if (overlayWindow && !overlayWindow.isDestroyed() && overlayWindow.isVisible()) {
+    writeAppLog('overlay_window_toggle_hide');
     overlayWindow.hide();
     return { success: true, visible: false };
   }
 
+  writeAppLog('overlay_window_toggle_show');
   createOverlayWindow();
   return { success: true, visible: true };
 }
 
 app.whenReady().then(() => {
-  getCopilot();
-  createWindow();
-  createTray();
-  globalShortcut.register('CommandOrControl+Shift+O', toggleOverlayWindow);
-  globalShortcut.register('CommandOrControl+Shift+P', () => toggleOverlayPreference('privacy'));
-  globalShortcut.register('CommandOrControl+Shift+F', () => toggleOverlayPreference('focus'));
-  globalShortcut.register('CommandOrControl+Shift+D', () => cycleOverlayDock());
-  globalShortcut.register('CommandOrControl+Shift+M', () => moveOverlayToNextDisplay());
+  writeAppLog('app_ready', {
+    version: app.getVersion(),
+    name: app.getName(),
+    platform: process.platform,
+    arch: process.arch,
+    electronVersion: process.versions.electron,
+    chromeVersion: process.versions.chrome,
+    nodeVersion: process.versions.node,
+    userData: app.getPath('userData'),
+    appPath: app.getAppPath(),
+    isPackaged: app.isPackaged,
+    awsRegion: process.env.AWS_REGION || '',
+    transcribeRegion: process.env.TRANSCRIBE_REGION || process.env.AWS_REGION || '',
+    bedrockModelConfigured: Boolean(process.env.BEDROCK_MODEL_ID || process.env.BEDROCK_MODEL),
+    inferenceProfileConfigured: Boolean(process.env.BEDROCK_INFERENCE_PROFILE_ID)
+  });
 
-  if (loadOverlayState().visible) {
-    createOverlayWindow();
+  try {
+    getCopilot();
+    createWindow();
+    createTray();
+
+    const shortcuts = [
+      ['CommandOrControl+Shift+O', toggleOverlayWindow],
+      ['CommandOrControl+Shift+P', () => toggleOverlayPreference('privacy')],
+      ['CommandOrControl+Shift+F', () => toggleOverlayPreference('focus')],
+      ['CommandOrControl+Shift+D', () => cycleOverlayDock()],
+      ['CommandOrControl+Shift+M', () => moveOverlayToNextDisplay()]
+    ];
+
+    shortcuts.forEach(([accelerator, callback]) => {
+      const registered = globalShortcut.register(accelerator, callback);
+      writeAppLog('global_shortcut_registered', { accelerator, registered });
+    });
+
+    if (loadOverlayState().visible) {
+      createOverlayWindow();
+    }
+  } catch (error) {
+    writeAppError('app_ready_startup_failed', error);
+    throw error;
   }
 });
 
 app.on('will-quit', () => {
+  writeAppLog('app_will_quit');
   globalShortcut.unregisterAll();
 });
 
 app.on('window-all-closed', () => {
+  writeAppLog('window_all_closed', {
+    platform: process.platform,
+    trayExists: Boolean(tray)
+  });
   if (process.platform !== 'darwin' && !tray) {
     app.quit();
   }
 });
 
 app.on('activate', () => {
+  writeAppLog('app_activate', {
+    windowCount: BrowserWindow.getAllWindows().length
+  });
   if (BrowserWindow.getAllWindows().length === 0) {
     createWindow();
   }
 });
 
+app.on('render-process-gone', (event, webContents, details) => {
+  writeAppLog('render_process_gone', {
+    url: webContents ? webContents.getURL() : '',
+    details
+  });
+});
+
+app.on('child-process-gone', (event, details) => {
+  writeAppLog('child_process_gone', details);
+});
+
+app.on('gpu-process-crashed', (event, killed) => {
+  writeAppLog('gpu_process_crashed', { killed });
+});
+
+app.on('web-contents-created', (event, contents) => {
+  contents.on('console-message', (consoleEvent, level, message, line, sourceId) => {
+    if (level < 2) {
+      return;
+    }
+
+    writeAppLog('renderer_console_message', {
+      level,
+      message,
+      line,
+      sourceId,
+      url: contents.getURL()
+    });
+  });
+
+  contents.on('did-fail-load', (loadEvent, errorCode, errorDescription, validatedURL) => {
+    writeAppLog('webcontents_did_fail_load', {
+      errorCode,
+      errorDescription,
+      validatedURL,
+      url: contents.getURL()
+    });
+  });
+});
+
+function handleIpc(channel, handler) {
+  ipcMain.handle(channel, async (event, ...args) => {
+    const startedAt = Date.now();
+    writeAppLog('ipc_start', {
+      channel,
+      senderUrl: event.sender ? event.sender.getURL() : '',
+      argCount: args.length
+    });
+
+    try {
+      const result = await handler(event, ...args);
+      writeAppLog('ipc_success', {
+        channel,
+        durationMs: Date.now() - startedAt,
+        resultSuccess: result && typeof result === 'object' && 'success' in result ? result.success : null
+      });
+      return result;
+    } catch (error) {
+      writeAppError('ipc_failed', error, {
+        channel,
+        durationMs: Date.now() - startedAt
+      });
+      return { success: false, message: error.message || 'IPC handler failed' };
+    }
+  });
+}
+
 // IPC handlers
-ipcMain.handle('start-listening', async () => {
+handleIpc('start-listening', async () => {
   const result = await getCopilot().startListening();
   if (result.success) {
     createOverlayWindow();
@@ -283,46 +512,46 @@ ipcMain.handle('start-listening', async () => {
   return result;
 });
 
-ipcMain.handle('stop-listening', async () => {
+handleIpc('stop-listening', async () => {
   return await getCopilot().stopListening();
 });
 
-ipcMain.handle('take-screenshot', async () => {
+handleIpc('take-screenshot', async () => {
   return await getCopilot().takeScreenshot();
 });
 
-ipcMain.handle('generate-answer', async (event, question, type) => {
+handleIpc('generate-answer', async (event, question, type) => {
   return await getCopilot().generateAnswer(question, type);
 });
 
-ipcMain.handle('debug-code', async (event, input) => {
+handleIpc('debug-code', async (event, input) => {
   return await getCopilot().debugCode(input);
 });
 
-ipcMain.handle('open-overlay', async () => {
+handleIpc('open-overlay', async () => {
   createOverlayWindow();
   return { success: true };
 });
 
-ipcMain.handle('close-overlay', async () => {
+handleIpc('close-overlay', async () => {
   if (overlayWindow && !overlayWindow.isDestroyed()) {
     overlayWindow.hide();
   }
   return { success: true };
 });
 
-ipcMain.handle('minimize-overlay', async () => {
+handleIpc('minimize-overlay', async () => {
   if (overlayWindow && !overlayWindow.isDestroyed()) {
     overlayWindow.hide();
   }
   return { success: true };
 });
 
-ipcMain.handle('toggle-overlay', async () => {
+handleIpc('toggle-overlay', async () => {
   return toggleOverlayWindow();
 });
 
-ipcMain.handle('overlay-set-opacity', async (event, opacity) => {
+handleIpc('overlay-set-opacity', async (event, opacity) => {
   const nextOpacity = Math.min(1, Math.max(0.15, Number(opacity) || 0.88));
 
   if (overlayWindow && !overlayWindow.isDestroyed()) {
@@ -407,19 +636,19 @@ function moveOverlayToNextDisplay() {
   return { success: true, displayId: nextDisplay.id };
 }
 
-ipcMain.handle('overlay-update-preferences', async (event, patch) => {
+handleIpc('overlay-update-preferences', async (event, patch) => {
   return updateOverlayPreferences(patch);
 });
 
-ipcMain.handle('overlay-dock', async (event, side) => {
+handleIpc('overlay-dock', async (event, side) => {
   return dockOverlay(side);
 });
 
-ipcMain.handle('overlay-next-display', async () => {
+handleIpc('overlay-next-display', async () => {
   return moveOverlayToNextDisplay();
 });
 
-ipcMain.handle('overlay-get-state', async () => {
+handleIpc('overlay-get-state', async () => {
   const state = loadOverlayState();
   return {
     success: true,

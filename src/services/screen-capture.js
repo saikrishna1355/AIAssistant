@@ -4,14 +4,18 @@ const fs = require('fs');
 const path = require('path');
 
 class ScreenCapture {
-  constructor() {
-    this.screenshotPath = path.join(__dirname, '../../temp');
+  constructor(options = {}) {
+    this.screenshotPath = options.screenshotPath || process.env.SCREENSHOT_TEMP_DIR || path.join(process.cwd(), 'temp');
     this.ensureTempDirectory();
   }
 
   ensureTempDirectory() {
-    if (!fs.existsSync(this.screenshotPath)) {
-      fs.mkdirSync(this.screenshotPath, { recursive: true });
+    try {
+      if (!fs.existsSync(this.screenshotPath)) {
+        fs.mkdirSync(this.screenshotPath, { recursive: true });
+      }
+    } catch (error) {
+      throw new Error(`Failed to create screenshot temp directory at ${this.screenshotPath}: ${error.message}`);
     }
   }
 
