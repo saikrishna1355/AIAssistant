@@ -597,16 +597,42 @@ class InterviewCopilotUI {
 
   handleQuestionDetected(data) {
     this.incrementQuestionCount();
-    this.addQuestion(data.question, data.type);
+    
+    // Enhanced question display with metadata
+    const questionText = data.question;
+    const questionType = data.type || 'general';
+    const urgency = data.urgency ? ' (Urgent)' : '';
+    const confidence = data.confidence ? ` [${Math.round(data.confidence * 100)}%]` : '';
+    
+    this.addQuestion(`${questionText}${urgency}${confidence}`, questionType);
+    
     if (data.answer) {
-      this.addAnswer(data.answer, data.type);
-    } else {
-      this.addAnswer('Generating answer with Bedrock...', data.type);
+      this.addAnswer(data.answer, questionType);
+    } else if (data.pending) {
+      this.addAnswer('🤖 Generating answer with AI...', questionType);
     }
   }
 
   handleAnswerGenerated(data) {
-    this.addAnswer(data.answer, data.type);
+    // Replace the "generating" message with the actual answer
+    const existingAnswer = this.elements.answers.querySelector('.item:first-child .answer-text');
+    if (existingAnswer && existingAnswer.textContent.includes('Generating')) {
+      existingAnswer.textContent = data.answer;
+      
+      // Add generation time if available
+      if (data.generationTime) {
+        const timeEl = existingAnswer.parentElement.querySelector('.generation-time');
+        if (!timeEl) {
+          const timeSpan = document.createElement('span');
+          timeSpan.className = 'generation-time';
+          timeSpan.textContent = ` (${data.generationTime}ms)`;
+          existingAnswer.appendChild(timeSpan);
+        }
+      }
+    } else {
+      // Fallback: add as new answer
+      this.addAnswer(data.answer, data.type);
+    }
   }
 
   addQuestion(question, type) {
@@ -652,8 +678,28 @@ class InterviewCopilotUI {
   }
 
   updateTranscription(transcription) {
-    this.elements.transcription.classList.remove('muted');
-    this.elements.transcription.textContent = transcription || 'Listening...';
+    if (typeof transcription === 'object') {
+      // Enhanced transcription object with metadata
+      this.elements.transcription.classList.remove('muted');
+      const displayText = transcription.text || transcription;
+      const confidence = transcription.confidence;
+      const isPartial = transcription.isPartial;
+      
+      // Add confidence indicator if available
+      let displayHtml = displayText;
+      if (confidence && confidence < 0.8) {
+        displayHtml = `<span class="low-confidence">${displayText}</span>`;
+      }
+      if (isPartial) {
+        displayHtml = `<span class="partial-transcript">${displayHtml}</span>`;
+      }
+      
+      this.elements.transcription.innerHTML = displayHtml;
+    } else {
+      // Legacy string transcription
+      this.elements.transcription.classList.remove('muted');
+      this.elements.transcription.textContent = transcription || 'Listening...';
+    }
   }
 
   applyListeningStatus(isListening, message) {

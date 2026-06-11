@@ -106,6 +106,44 @@ app.get("/api/config", (req, res) => {
   res.json(config);
 });
 
+app.get("/api/audio-sources", (req, res) => {
+  serverLog("audio_sources_requested");
+  try {
+    const sources = copilot.getAvailableAudioSources();
+    const info = copilot.getAudioSourceInfo();
+    serverLog("audio_sources_completed", {
+      sourcesFound: Object.keys(sources).reduce(
+        (acc, key) => acc + sources[key].length,
+        0,
+      ),
+      currentMode: info.currentMode,
+      systemAvailable: info.systemAudioAvailable,
+    });
+    res.json({ success: true, sources, info });
+  } catch (error) {
+    serverError("audio_sources_failed", error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+app.post("/api/set-audio-mode", (req, res) => {
+  const { mode } = req.body;
+  serverLog("set_audio_mode_requested", { mode });
+
+  try {
+    const success = copilot.setAudioSourceMode(mode);
+    if (success) {
+      serverLog("set_audio_mode_completed", { mode });
+      res.json({ success: true, mode });
+    } else {
+      res.status(400).json({ success: false, message: "Invalid audio mode" });
+    }
+  } catch (error) {
+    serverError("set_audio_mode_failed", error, { mode });
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
 app.post("/api/start-listening", async (req, res) => {
   serverLog("start_listening_requested");
   try {
@@ -289,6 +327,7 @@ const ready = new Promise((resolve, reject) => {
         process.env.TRANSCRIBE_REGION ||
         process.env.AWS_REGION ||
         "eu-central-1",
+      audioSourceMode: process.env.AUDIO_SOURCE_MODE || "system",
       bedrockModelConfigured: Boolean(
         process.env.BEDROCK_MODEL_ID ||
         process.env.BEDROCK_MODEL ||

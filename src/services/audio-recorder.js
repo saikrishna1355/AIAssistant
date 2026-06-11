@@ -5,15 +5,17 @@ const {
 const record = require("node-record-lpcm16");
 const { spawnSync } = require("child_process");
 const { PassThrough } = require("stream");
+const { SystemAudioCapture } = require("./system-audio-capture");
 
 class AudioRecorder {
   constructor() {
     this.recording = null;
     this.isRecording = false;
     this.transcriptionCallback = null;
-    this.mockInterval = null;
     this.browserAudioStream = null;
     this.browserStreamActive = false;
+    this.systemAudioCapture = new SystemAudioCapture();
+    this.audioSourceMode = process.env.AUDIO_SOURCE_MODE || "system"; // microphone, system, both
     this.transcribeRegion =
       process.env.TRANSCRIBE_REGION ||
       this.getDefaultStreamingRegion(process.env.AWS_REGION || "eu-central-1");
@@ -31,13 +33,28 @@ class AudioRecorder {
     this.isRecording = true;
 
     try {
-      this.startAWSTranscribeStreaming().catch((error) => {
-        console.error("Transcription stream stopped:", error);
-        if (this.isRecording) {
-          this.startMockTranscription();
-        }
-      });
-      return { success: true };
+      if (this.audioSourceMode === "system") {
+        this.startSystemAudioTranscription().catch((error) => {
+          console.error("System audio transcription failed:", error);
+          this.isRecording = false;
+          throw error;
+        });
+      } else if (this.audioSourceMode === "both") {
+        // Start both microphone and system audio (mixed)
+        this.startMixedAudioTranscription().catch((error) => {
+          console.error("Mixed audio transcription failed:", error);
+          this.isRecording = false;
+          throw error;
+        });
+      } else {
+        // Default microphone mode
+        this.startAWSTranscribeStreaming().catch((error) => {
+          console.error("Transcription stream stopped:", error);
+          this.isRecording = false;
+          throw error;
+        });
+      }
+      return { success: true, mode: this.audioSourceMode };
     } catch (error) {
       console.error("Failed to start transcription:", error);
       this.isRecording = false;
@@ -45,14 +62,109 @@ class AudioRecorder {
     }
   }
 
+  async startSystemAudioTranscription() {
+    if (!this.systemAudioCapture.isSystemAudioAvailable()) {
+      console.warn("System audio capture not available.");
+      throw new Error("System audio capture not available on this platform");
+    }
+
+    try {
+      const { stream: audioStream, source } =
+        this.systemAudioCapture.startSystemCapture();
+      console.log(`Started system audio capture from: ${source}`);
+
+      audioStream.on("error", (error) => {
+        if (!this.isRecording) return;
+        console.error("System audio stream error:", error);
+        throw error;
+      });
+
+      await this.startTranscribeFromStream(audioStream, 16000);
+    } catch (error) {
+      console.error("System audio capture failed:", error);
+      throw error;
+    }
+  }
+
+  async startMixedAudioTranscription() {
+    // Start both microphone and system audio, mix them together
+    const mixedStream = new PassThrough();
+    let micStream = null;
+    let systemStream = null;
+
+    try {
+      // Start microphone
+      const recorderName = this.getAvailableRecorder();
+      if (recorderName) {
+        this.recording = record.record({
+          sampleRate: 16000,
+          channels: 1,
+          threshold: 0,
+          verbose: false,
+          recorder: recorderName,
+          audioType: "raw",
+          silence: "1.0s",
+        });
+        micStream = this.recording.stream();
+      }
+
+      // Start system audio
+      if (this.systemAudioCapture.isSystemAudioAvailable()) {
+        const { stream } = this.systemAudioCapture.startSystemCapture();
+        systemStream = stream;
+      }
+
+      // Mix audio streams (simple approach: alternate chunks)
+      if (micStream && systemStream) {
+        let micBuffer = Buffer.alloc(0);
+        let sysBuffer = Buffer.alloc(0);
+
+        micStream.on("data", (chunk) => {
+          micBuffer = Buffer.concat([micBuffer, chunk]);
+          this.processMixedAudio(mixedStream, micBuffer, sysBuffer);
+        });
+
+        systemStream.on("data", (chunk) => {
+          sysBuffer = Buffer.concat([sysBuffer, chunk]);
+          this.processMixedAudio(mixedStream, micBuffer, sysBuffer);
+        });
+      } else if (micStream) {
+        micStream.pipe(mixedStream);
+      } else if (systemStream) {
+        systemStream.pipe(mixedStream);
+      } else {
+        throw new Error("No audio sources available");
+      }
+
+      await this.startTranscribeFromStream(mixedStream, 16000);
+    } catch (error) {
+      console.error("Mixed audio transcription failed:", error);
+      throw error;
+    }
+  }
+
+  processMixedAudio(outputStream, micBuffer, sysBuffer) {
+    const chunkSize = 1024;
+    const minLength = Math.min(micBuffer.length, sysBuffer.length);
+
+    if (minLength >= chunkSize) {
+      // Simple audio mixing: average the samples
+      const mixed = Buffer.alloc(chunkSize);
+      for (let i = 0; i < chunkSize; i += 2) {
+        const micSample = micBuffer.readInt16LE(i);
+        const sysSample = sysBuffer.readInt16LE(i);
+        const mixedSample = Math.round((micSample + sysSample) / 2);
+        mixed.writeInt16LE(mixedSample, i);
+      }
+      outputStream.write(mixed);
+    }
+  }
+
   async startAWSTranscribeStreaming() {
     const recorderName = this.getAvailableRecorder();
     if (!recorderName) {
-      console.warn(
-        "No local recorder binary found. Install SoX or arecord for live audio. Falling back to demo transcription.",
-      );
-      this.startMockTranscription();
-      return;
+      console.warn("No local recorder binary found. Install SoX or arecord for live audio.");
+      throw new Error("No audio recorder available. Install SoX, arecord, or rec.");
     }
 
     const audioStream = new PassThrough();
@@ -76,7 +188,7 @@ class AudioRecorder {
       }
 
       console.error("Local recorder stream error:", error);
-      this.fallbackToMock("local recorder stream failed");
+      throw error;
     });
 
     if (this.recording.process) {
@@ -86,7 +198,7 @@ class AudioRecorder {
         }
 
         console.error("Local recorder process error:", error.message);
-        this.fallbackToMock("local recorder process failed");
+        throw error;
       });
     }
 
@@ -112,7 +224,8 @@ class AudioRecorder {
           error.message || error,
         );
         if (this.isRecording) {
-          this.fallbackToMock("browser microphone transcription failed");
+          this.isRecording = false;
+          throw error;
         }
       },
     );
@@ -152,9 +265,14 @@ class AudioRecorder {
           for (const result of results) {
             if (result.Alternatives && result.Alternatives.length > 0) {
               const transcript = result.Alternatives[0].Transcript;
+              const confidence = result.Alternatives[0].Confidence;
+              
               if (transcript && transcript.trim().length > 0) {
                 this.transcriptionCallback(transcript.trim(), {
                   isPartial: result.IsPartial,
+                  confidence: confidence,
+                  timestamp: Date.now(),
+                  resultId: result.ResultId
                 });
               }
             }
@@ -167,7 +285,8 @@ class AudioRecorder {
         error.message || error,
       );
       if (this.isRecording) {
-        this.fallbackToMock("AWS Transcribe streaming failed");
+        this.isRecording = false;
+        throw new Error("AWS Transcribe streaming failed");
       }
     }
   }
@@ -228,14 +347,18 @@ class AudioRecorder {
   }
 
   async *asyncGenerator(audioStream) {
+    const maxChunkSize = 1024 * 8; // Reduce chunk size to 8KB for system audio
+    
     for await (const chunk of audioStream) {
-      if (chunk.length <= 1024 * 32) {
+      if (chunk.length <= maxChunkSize) {
         yield { AudioEvent: { AudioChunk: chunk } };
       } else {
-        for (let offset = 0; offset < chunk.length; offset += 1024 * 32) {
+        // Split large chunks into smaller pieces
+        for (let offset = 0; offset < chunk.length; offset += maxChunkSize) {
+          const smallChunk = chunk.subarray(offset, offset + maxChunkSize);
           yield {
             AudioEvent: {
-              AudioChunk: chunk.subarray(offset, offset + 1024 * 32),
+              AudioChunk: smallChunk,
             },
           };
         }
@@ -244,10 +367,11 @@ class AudioRecorder {
   }
 
   fallbackToMock(reason) {
-    console.warn(`${reason}. Falling back to demo transcription.`);
+    console.warn(`${reason}. Audio capture failed - stopping recording.`);
     this.stopLocalRecording();
+    this.stopSystemAudio();
     this.stopBrowserStream();
-    this.startMockTranscription();
+    // Don't start mock transcription - just stop
   }
 
   stopLocalRecording() {
@@ -264,6 +388,14 @@ class AudioRecorder {
     this.recording = null;
   }
 
+  stopSystemAudio() {
+    try {
+      this.systemAudioCapture.stop();
+    } catch (error) {
+      console.warn("Failed to stop system audio capture:", error.message);
+    }
+  }
+
   stopBrowserStream() {
     this.browserStreamActive = false;
 
@@ -271,39 +403,6 @@ class AudioRecorder {
       this.browserAudioStream.end();
       this.browserAudioStream = null;
     }
-  }
-
-  startMockTranscription() {
-    if (this.mockInterval) {
-      return;
-    }
-
-    // Fallback mock transcription for demo purposes
-    const mockQuestions = [
-      "Tell me about a time you faced a challenge",
-      "How would you implement a binary search algorithm?",
-      "What are your greatest strengths and weaknesses?",
-      "Explain how you would reverse a linked list",
-      "Describe a situation where you had to work with a difficult team member",
-      "Write a function to find the maximum element in an array",
-      "How do you handle stress and pressure?",
-      "Implement a function to check if a string is a palindrome",
-    ];
-
-    const mockInterval = setInterval(() => {
-      if (!this.isRecording) {
-        clearInterval(mockInterval);
-        return;
-      }
-
-      if (Math.random() < 0.4) {
-        const question =
-          mockQuestions[Math.floor(Math.random() * mockQuestions.length)];
-        this.transcriptionCallback(question, { isPartial: false });
-      }
-    }, 5000);
-
-    this.mockInterval = mockInterval;
   }
 
   async stop() {
@@ -314,14 +413,36 @@ class AudioRecorder {
     this.isRecording = false;
 
     this.stopLocalRecording();
+    this.stopSystemAudio();
     this.stopBrowserStream();
 
-    if (this.mockInterval) {
-      clearInterval(this.mockInterval);
-      this.mockInterval = null;
-    }
-
     return { success: true };
+  }
+
+  setAudioSourceMode(mode) {
+    if (["microphone", "system", "both"].includes(mode)) {
+      this.audioSourceMode = mode;
+      return true;
+    }
+    return false;
+  }
+
+  getAudioSourceMode() {
+    return this.audioSourceMode;
+  }
+
+  getAvailableAudioSources() {
+    return this.systemAudioCapture.getAvailableAudioSources();
+  }
+
+  getAudioSourceInfo() {
+    return {
+      currentMode: this.audioSourceMode,
+      isRecording: this.isRecording,
+      availableSources: this.getAvailableAudioSources(),
+      systemAudioAvailable: this.systemAudioCapture.isSystemAudioAvailable(),
+      ...this.systemAudioCapture.getSourceInfo(),
+    };
   }
 }
 

@@ -1,0 +1,66 @@
+/* Enhanced transcription styling */
+.partial-transcript {
+  opacity: 0.7;
+  font-style: italic;
+}
+
+.low-confidence {
+  color: #f59e0b;
+  text-decoration: underline;
+}
+
+.generation-time {
+  font-size: 0.8em;
+  color: #6b7280;
+  font-weight: normal;
+}
+
+/* Question urgency indicator */
+.urgent-question {
+  border-left: 3px solid #ef4444;
+  padding-left: 8px;
+}
+
+/* Confidence indicator */
+.confidence-indicator {
+  display: inline-block;
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-size: 0.7em;
+  margin-left: 4px;
+}
+
+.confidence-high {
+  background-color: #10b981;
+  color: white;
+}
+
+.confidence-medium {
+  background-color: #f59e0b;
+  color: white;
+}
+
+.confidence-low {
+  background-color: #ef4444;
+  color: white;
+}
+
+/* Real-time status indicators */
+.status-streaming {
+  background-color: #8b5cf6;
+  animation: pulse 2s infinite;
+}
+
+.status-processing {
+  background-color: #f59e0b;
+  animation: pulse 1.5s infinite;
+}
+
+@keyframes pulse {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.7;
+  }
+}

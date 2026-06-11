@@ -19,12 +19,24 @@ class InterviewCopilot {
     
     try {
       this.isListening = true;
-      await this.audioRecorder.start((transcription, meta) => {
+      const result = await this.audioRecorder.start((transcription, meta) => {
         this.handleTranscription(transcription, meta);
       });
-      this.emit('listening-status', { listening: true, message: 'Listening now. Speak an interview question.' });
       
-      return { success: true, message: 'Started listening for questions' };
+      const mode = result.mode || 'microphone';
+      const modeText = {
+        microphone: 'microphone input',
+        system: 'system audio output',
+        both: 'microphone and system audio'
+      }[mode] || 'audio source';
+      
+      this.emit('listening-status', { 
+        listening: true, 
+        message: `Listening to ${modeText}. Speak an interview question.`,
+        mode
+      });
+      
+      return { success: true, message: `Started listening for questions via ${modeText}` };
     } catch (error) {
       console.error('Failed to start listening:', error);
       this.isListening = false;
@@ -74,35 +86,85 @@ class InterviewCopilot {
   }
 
   async handleTranscription(transcription, meta = {}) {
+    // Process the transcript segment through enhanced question detector
+    const result = this.questionDetector.processTranscriptSegment(
+      transcription, 
+      meta.isPartial, 
+      {
+        confidence: meta.confidence,
+        timestamp: meta.timestamp
+      }
+    );
+
     if (meta.isPartial) {
+      // For partial transcripts, just update the UI
       const liveText = `${this.currentTranscription} ${transcription}`.trim();
-      this.emit('transcription-update', liveText || transcription);
+      this.emit('transcription-update', {
+        text: liveText || transcription,
+        isPartial: true,
+        confidence: result.confidence
+      });
       return;
     }
 
+    // Update the complete transcription
     this.currentTranscription = `${this.currentTranscription} ${transcription}`.trim();
-    this.emit('transcription-update', this.currentTranscription);
+    this.emit('transcription-update', {
+      text: this.currentTranscription,
+      isPartial: false,
+      confidence: result.confidence
+    });
     
-    if (this.questionDetector.isQuestion(transcription)) {
-      const question = this.questionDetector.extractQuestionFromTranscription(transcription);
-
-      if (question === this.lastQuestion) {
-        return;
-      }
-
-      this.lastQuestion = question;
-      const questionType = this.questionDetector.categorizeQuestion(question);
+    // Process any detected questions
+    if (result.isQuestion && result.question) {
+      console.log(`🎯 Question detected: ${result.question} (Type: ${result.type})`);
+      
+      // Emit question detected event immediately
       this.emit('question-detected', {
-        question,
-        type: questionType,
-        pending: true
+        question: result.question,
+        type: result.type,
+        urgency: result.urgency,
+        timestamp: result.timestamp,
+        confidence: result.confidence,
+        pending: true // Indicates answer is being generated
       });
 
-      const answer = await this.generateAnswer(question, questionType);
+      // Start answer generation in parallel - don't wait
+      this.generateAnswerAsync(result.question, result.type, {
+        urgency: result.urgency,
+        timestamp: result.timestamp
+      });
+    }
+  }
+
+  async generateAnswerAsync(question, questionType, metadata = {}) {
+    try {
+      console.log(`🤖 Generating answer for: ${question}`);
+      const startTime = Date.now();
+      
+      const answer = await this.generateAnswer(question, questionType, {
+        urgency: metadata.urgency
+      });
+      
+      const generationTime = Date.now() - startTime;
+      console.log(`✅ Answer generated in ${generationTime}ms`);
+      
       this.emit('answer-generated', {
         question,
         type: questionType,
-        answer
+        answer,
+        generationTime,
+        timestamp: metadata.timestamp,
+        urgency: metadata.urgency
+      });
+    } catch (error) {
+      console.error('❌ Failed to generate answer:', error);
+      this.emit('answer-generated', {
+        question,
+        type: questionType,
+        answer: 'Unable to generate answer at this time. Please try again.',
+        error: error.message,
+        timestamp: metadata.timestamp
       });
     }
   }
@@ -141,6 +203,28 @@ class InterviewCopilot {
 
   async debugCode(input) {
     return this.generateAnswer(input, 'debug');
+  }
+
+  resetTranscriptionState() {
+    this.currentTranscription = '';
+    this.lastQuestion = '';
+    this.questionDetector.resetState();
+  }
+
+  setAudioSourceMode(mode) {
+    return this.audioRecorder.setAudioSourceMode(mode);
+  }
+
+  getAudioSourceMode() {
+    return this.audioRecorder.getAudioSourceMode();
+  }
+
+  getAudioSourceInfo() {
+    return this.audioRecorder.getAudioSourceInfo();
+  }
+
+  getAvailableAudioSources() {
+    return this.audioRecorder.getAvailableAudioSources();
   }
 
   emit(eventName, payload) {

@@ -91,6 +91,7 @@ Set `ALWAYS_ON_TOP=true` for an overlay-like desktop utility window.
 Set `AUDIO_RECORDER=arecord`, `sox`, or `rec` to force a specific local recorder.
 For Claude 4.5 models that do not support on-demand invocation, set `BEDROCK_INFERENCE_PROFILE_ID` instead, for example `eu.anthropic.claude-haiku-4-5-20251001-v1:0` in EU regions.
 Set `TRANSCRIBE_REGION` to an Amazon Transcribe Streaming-supported region. For example, use `eu-central-1` when `AWS_REGION=eu-north-1`, because Stockholm currently supports Transcribe batch but not streaming.
+Set `AUDIO_SOURCE_MODE=system` to capture system audio output (for Teams, Zoom, Meet calls) instead of microphone input. Options: `microphone` (default), `system`, `both`.
 
 ## Overlay
 
